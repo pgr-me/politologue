@@ -1,2 +1,2 @@
-# politilogue
+# politologue
 LLM-powered agents debate political topics
