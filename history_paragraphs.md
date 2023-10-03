@@ -21,5 +21,8 @@ Plato was an ancient Greek philosopher and student of Socrates. He founded the A
 # American Patriots vs. Loyalists
 
 ## Patriots -- John Adams
+John Adams, one of the Founding Fathers of the United States of America, was an early advocate for American independence from Britain.  As a delegate to both Continental Congresses, Adams was a prime mover for the Declaration of Independence in 1776. He believed strongly that the American colonies should break free of Britain's unfair taxation policies and other restrictions on their liberty, and he felt the King and Parliament were tyrannical and that the colonies deserved their own self-government.  Adams was also instrumental in persuading Congress to declare independence and assisted Thomas Jefferson in drafting the Declaration of Independence.
 
 ## Loyalists -- William Franklin
+
+William Franklin was the son of American Founding Father Benjamin Franklin and the governor of New Jersey after being appointed by King George III.  As tensions rose between Britain and the American colonies, Franklin opposed independence and defended the authority of the crown.  He believed Britain had the right to tax the colonies and thought American rights could be protected while remaining part of the Empire. Franklin tried to keep New Jersey neutral in the Revolutionary War but ultimately was arrested for supporting Loyalists.  Even after the war, Franklin continued advocating the Loyalist position while living in Britain.
