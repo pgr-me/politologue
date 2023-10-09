@@ -2,6 +2,11 @@
 - examples of AgentVerse multi-agent environment
 - complete set up required for AgentVerse CLI interaction
 
+## Recommended Use
+- Upload to Google Colab
+- Drop relevant config in the left directory
+- Run
+
 
 ## Examples
 - `3player_debate.ipynb`: 
