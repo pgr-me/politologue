@@ -32,7 +32,16 @@ Due to most publicly available LLMs having guard-rails to disallow polarized pol
 
 Utilizing OpenAI's ChatGPT and the AgentVerse framework for scripting multiple agents, we propose creating a debate framework where two personas debate a given issue while being moderated by a ``judge'' agent that will determine which case is stronger.  In addition, we propose using a live, human control group to vote on the persuasive abilities of the debating agents.  In so doing, we look to compare the decisions of the judge against the consensus decision of a human group.
 
-\subsection{Personas}
+
+\section{Conclusion}
+Overall, this proposal is to look into and develop a system whereby multiple agents debate while being moderated by a third.  This will involve prompt engineering and using historical personas to enable such a debate.  In the end, we hope to evaluate the judge's rulings based on a consensus of a human group.
+
+\vskip 0.2in
+\bibliography{LLM_Proposal}
+\bibliographystyle{theapa}
+
+\appendix
+\section{Personas}
 Based on the work of \shortciteA{Chan2023}, it was determined that strong personas would need to be used to zealously advocate for the different views.  To provide historical context and draw on the vast library of ingested information, each side of these debates will take the persona of a factual historical figure.
 
 \subsubsection{Roman Tyranny}
@@ -49,12 +58,4 @@ Plato, who is championning the anti-democratic ideals, was an ancient Greek phil
 Representing American patriots is John Adams, one of the Founding Fathers of the United States of America and an early advocate for American independence from Britain.  As a delegate to both Continental Congresses, Adams was a prime mover for the Declaration of Independence in 1776. He believed strongly that the American colonies should break free of Britain's unfair taxation policies and other restrictions on their liberty, and he felt the King and Parliament were tyrannical and that the colonies deserved their own self-government.  Adams was also instrumental in persuading Congress to declare independence and assisted Thomas Jefferson in drafting the Declaration of Independence~\shortcite{McCullough2008}.
 
 William Franklin is the Loyalist champion.  Franklin was the son of American Founding Father Benjamin Franklin and the governor of New Jersey after being appointed by King George III.  As tensions rose between Britain and the American colonies, Franklin opposed independence and defended the authority of the crown.  He believed Britain had the right to tax the colonies and thought American rights could be protected while remaining part of the Empire. Franklin tried to keep New Jersey neutral in the Revolutionary War but ultimately was arrested for supporting Loyalists.  Even after the war, Franklin continued advocating the Loyalist position while living in Britain~\shortcite{Skemp1998}.
-
-\section{Conclusion}
-Overall, this proposal is to look into and develop a system whereby multiple agents debate while being moderated by a third.  This will involve prompt engineering and using historical personas to enable such a debate.  In the end, we hope to evaluate the judge's rulings based on a consensus of a human group.
-
-\vskip 0.2in
-\bibliography{LLM_Proposal}
-\bibliographystyle{theapa}
-
 \end{document}
