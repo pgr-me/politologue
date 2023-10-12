@@ -8,12 +8,12 @@
 - Run
 
 ## Docker Use
-### pull the image
+### Pull the Image
 ```
 docker pull oreb/jhu_llm:1.0
 ```
 
-### run an agent verse debate simulation
+### Run an AgentVerse Debate Simulation
 ```
 # run the container
 > docker run -d -e "OPENAI_API_KEY=<api key here>" oreb/jhu_llm:1.0
@@ -33,7 +33,7 @@ docker pull oreb/jhu_llm:1.0
 > exit
 ```
 
-### update the prompts or personas in the config
+### Update the Prompts or Personas in the Config
 ```
 # replace the config
 > docker cp /path/to/new/file/on/host <container_name>:/agentverse/task/simulation/debate_3players/.config
@@ -47,8 +47,10 @@ docker pull oreb/jhu_llm:1.0
 # see the output!
 ```
 
+## Updating the AgentVerse Config
+![agentverse_config](https://github.com/pgr-me/politologue/assets/32425398/9b2d5012-3559-49fd-aa5f-02716fabc5dd)
 
-## Examples
+## Notebook Examples
 - `3player_debate.ipynb`: 
     - 3 player debate between Cato and Caesar, moderated by Cicero.
     - requires OpenAI API key, which will be prompted for
