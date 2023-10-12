@@ -33,7 +33,7 @@ docker pull oreb/jhu_llm:1.0
 > exit
 ```
 
-### Update the Prompts or Personas in the Config
+### Update the Container's AgentVerse Config
 ```
 # replace the config
 > docker cp /path/to/new/file/on/host <container_name>:/agentverse/task/simulation/debate_3players/.config
@@ -47,7 +47,7 @@ docker pull oreb/jhu_llm:1.0
 # see the output!
 ```
 
-## Updating the AgentVerse Config
+## AgentVerse Config: Updating Prompts & Personas
 ![agentverse_config](https://github.com/pgr-me/politologue/assets/32425398/9b2d5012-3559-49fd-aa5f-02716fabc5dd)
 
 ## Notebook Examples
