@@ -1,6 +1,6 @@
 prompts:
   prompt: &prompt |-
-    Assume that you are in a public forum used for debates. You will be debating Roman Imperialism and Roman Republicanism as ideal forms of government..
+    Assume that you are in an American town square used for debates. You will be debating whether the American colonies should remain loyal to Britain or become an independent nation.
     Keep your responses to less than 50 words.
     Start by introducing yourselves and your role. ${role_description}
 
