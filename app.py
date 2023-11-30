@@ -79,6 +79,17 @@ def respond(client, prompt, model=None):
     responses = completion.choices
     return responses
 
+def make_responses(client, prompt, model=None, rounds=2, verbose=True):
+    # TODO
+    responses = []
+    response = respond(client, prompt, model)[0].message.content  # initial response content
+    responses.append(init_response)
+    for i in range(rounds):  # use inner monologue to improve response
+        mono_prompt = f"Prompt:{prompt}\nResponse:{response}\nGiven theabove prompt and response, explain how you can improve the response, and then provide a revised response."
+
+def choose_response(responses):
+    # TODO
+
 
 config_dir = Path(".")
 
@@ -107,6 +118,7 @@ debaters = [x for x in agent_names if x != moderator]
 
 
 n_rounds = 5
+inner_monologue = True
 # Set default model
 if "openai_model" not in st.session_state:
     st.session_state["openai_model"] = "gpt-3.5-turbo"
@@ -151,8 +163,12 @@ if st.button("Start Debate"):
                 with st.chat_message(debater):
                     message_placeholder = st.empty()
                     prompt = make_prompt(template, debater, history)
-                    responses = respond(agent_clients[debater], prompt)
-                    response_content = responses[0].message.content
+                    if inner_monologue:
+                        responses = make_responses(agent_clients[debater], prompt)  # Create three responses based off of an inner monologue
+                        response_content = choose_response(responses)  # Choose the strongest of the three responses
+                    else:
+                        responses = respond(agent_clients[debater], prompt)
+                        response_content = responses[0].message.content
                     chat_response_content = response_content.split("Action Input:")[-1]
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
