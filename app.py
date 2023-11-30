@@ -46,8 +46,22 @@ def instantiate_agents(template, api_key):
     agent_clients = {}
     for agent_data in template["agents"]:
         agent_name = agent_data["name"]
-        client = OpenAI(api_key=api_key)
-        agent_clients[agent_name] = client
+
+        if agent_data.get("use_falcon_7b", False):
+            model_name = "tiiuae/falcon-7b"
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+            agent_clients[agent_name] = pipeline(
+                "text-generation",
+                model=model,
+                tokenizer=tokenizer,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+            )
+        else:
+            client = OpenAI(api_key=api_key)
+            agent_clients[agent_name] = client
+
     return agent_clients
 
 
