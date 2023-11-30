@@ -17,9 +17,11 @@ from typing import Any
 import streamlit as st
 import transformers
 import torch
+import nltk
+import google.generativeai as palm
 
 from openai import OpenAI
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 
 # configure logging
@@ -36,6 +38,7 @@ class AgentModel(Enum):
     CHATGPT_35_TURBO = "gpt-3.5-turbo"
     FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
     LLAMA_2_7B_CHAT_HF = "meta-llama/Llama-2-7b-chat-hf"
+    PALM_TEXT_BISON_001 = "text-bison-001"
 
 
 @dataclass
@@ -68,6 +71,55 @@ class Response:
     message: Message
 
 
+def chunk_text(text, chunk_size=500):
+    """
+    given a text separate the text into chunks for the language model context window constraint
+    """
+    sentences = nltk.sent_tokenize(text)
+    chunks = []
+    current_chunk = ""
+
+    for sentence in sentences:
+        if len(current_chunk) + len(sentence) < chunk_size or len(current_chunk) == 0:
+            current_chunk += sentence + " "
+        else:
+            chunks.append(current_chunk)
+            current_chunk = sentence + " "
+
+    chunks.append(current_chunk)
+
+    return chunks
+
+
+def summarize(history, chat_record):
+    """
+    summarize the chat history to align with context window constraint
+    """
+    device = 0 if torch.cuda.is_available() else -1
+
+    summarizer = pipeline(
+        "summarization", model="pszemraj/led-large-book-summary", device=device
+    )
+
+    # if the size of the chat history is too large, summarize it
+    # include the last portion of chat for continuity
+    if len(chat_record) > 3:
+        chunks = chunk_text(history, chunk_size=1024)
+        summaries = [
+            summarizer(chunk, max_length=100)[0]["summary_text"] for chunk in chunks
+        ]
+        summary = " ".join(summaries)
+        summary = "\nDebate Summary:\n" + summary
+
+        chat = " ".join(chat_record[-2:])
+        chat = "\nMost Recent Chat History:\n" + chat
+        summary = summary + chat
+
+        logging.info(f"Summarizing history: \n{summary}")
+
+    return history
+
+
 def append_to_history(old_history, new_history):
     if not old_history:
         return new_history
@@ -97,7 +149,7 @@ def get_moderator(template):
     return li[0]
 
 
-def instantiate_agents(template, api_key):
+def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
     logging.info(f"Instantiating agents")
 
     tokenizer = None
@@ -146,14 +198,24 @@ def instantiate_agents(template, api_key):
                 model_name=model,
                 client=llama_pipeline,
             )
+        # palm bison
+        elif model == AgentModel.PALM_TEXT_BISON_001.value:
+            palm.configure(api_key=palm_api_key)
+            agent_clients[agent_name] = Agent(
+                name=agent_name,
+                model_name=model,
+                client=palm.generate_text,
+            )
         # chat gpt API
-        else:
-            client = OpenAI(api_key=api_key)
+        elif model == AgentModel.CHATGPT_35_TURBO.value:
+            client = OpenAI(api_key=openai_api_key)
             agent_clients[agent_name] = Agent(
                 name=agent_name,
                 model_name=model,
                 client=client,
             )
+        else:
+            raise ValueError(f"No model configuration for {model}")
 
     return agent_clients
 
@@ -171,10 +233,13 @@ def load_templates(config_dir):
 
 def make_prompt(template, agent_name, history):
     history = history if history else "This is the beginning of the debate."
+
     t = string.Template(template["prompts"]["prompt"])
     agent_di = get_agent(template, agent_name)
     role_desc = agent_di["role_description"]
+
     prompt = t.substitute(role_description=role_desc, chat_history=history)
+
     return prompt
 
 
@@ -225,6 +290,14 @@ def respond(client, prompt, model=None):
 
         return [response]
 
+    if model == AgentModel.PALM_TEXT_BISON_001.value:
+        sequences = client(prompt=prompt)
+
+        message = Message(content=sequences.result)
+        response = Response(message=message)
+
+        return [response]
+
     raise ValueError("No response")
 
 
@@ -232,10 +305,18 @@ if __name__ == "__main__":
     config_dir = Path("./configs")
     logging.info(f"Config path {config_dir}")
 
-    api_key = os.environ["OPENAI_API_KEY"]
-    if api_key is None:
-        raise ValueError("Add your OPENAI_API_KEY to your environment variables.")
-        api_key = st.text_input("Provide your OpenAI API key.")
+    # set up nltk for chat history summarization
+    nltk.download("punkt")
+    nltk.download("gutenberg")
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    palm_api_key = os.environ.get("PALM_API_KEY")
+
+    if openai_api_key is None:
+        logger.warning("OpenAI API Key is missing")
+
+    if palm_api_key is None:
+        logger.warning("PaLM API Key is missing")
 
     # Load debate templates and initialize history
     templates = load_templates(config_dir)
@@ -246,13 +327,23 @@ if __name__ == "__main__":
     template = templates[debate]
 
     # Instantiate agent clients and history
-    agent_clients = instantiate_agents(template, api_key)
+    agent_clients = instantiate_agents(
+        template,
+        openai_api_key=openai_api_key,
+        palm_api_key=palm_api_key,
+    )
     agent_names = list(agent_clients.keys())
 
     logging.info(f"agent_clients: {agent_clients}")
 
     if "history" not in locals():
         history = ""
+
+    # keep a chat record to help with summarization
+    # the latest literal responses will be appended to a summary
+    # this should help distil the prompt context size
+    chat_record = []
+
     # if round_ not in locals():
     #    round_ = 0
     moderator = get_moderator(template)
@@ -282,7 +373,9 @@ if __name__ == "__main__":
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
                     full_response = ""
-                    prompt = make_prompt(template, moderator, history)
+                    summarized_history = summarize(history, chat_record)
+
+                    prompt = make_prompt(template, moderator, summarized_history)
 
                     responses = respond(
                         agent_clients[moderator].client,
@@ -295,6 +388,8 @@ if __name__ == "__main__":
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
 
+                    chat_record.append(response_content)
+
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
@@ -305,7 +400,9 @@ if __name__ == "__main__":
 
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
-                    prompt = make_prompt(template, moderator, history)
+                    summarized_history = summarize(history, chat_record)
+
+                    prompt = make_prompt(template, moderator, summarized_history)
                     prompt += "\nDecide who won the debate and explain why."
 
                     responses = respond(
@@ -318,6 +415,9 @@ if __name__ == "__main__":
                     chat_response_content = response_content.split("Action Input:")[-1]
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
+
+                    chat_record.append(response_content)
+
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
@@ -328,7 +428,9 @@ if __name__ == "__main__":
                 for debater in debaters:
                     with st.chat_message(debater):
                         message_placeholder = st.empty()
-                        prompt = make_prompt(template, debater, history)
+                        summarized_history = summarize(history, chat_record)
+
+                        prompt = make_prompt(template, debater, summarized_history)
 
                         responses = respond(
                             agent_clients[debater].client,
@@ -342,6 +444,9 @@ if __name__ == "__main__":
                         ]
                         message_placeholder.markdown(chat_response_content)
                         history = append_to_history(history, response_content)
+
+                        chat_record.append(response_content)
+
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
                     )
