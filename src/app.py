@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Third party imports
+from dotenv import load_dotenv, find_dotenv
 import streamlit as st
 import transformers
 import torch
@@ -23,6 +24,7 @@ import google.generativeai as palm
 from openai import OpenAI
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
+load_dotenv(find_dotenv())
 
 # configure logging
 logging.basicConfig(
@@ -313,10 +315,10 @@ if __name__ == "__main__":
     palm_api_key = os.environ.get("PALM_API_KEY")
 
     if openai_api_key is None:
-        logger.warning("OpenAI API Key is missing")
+        logging.warning("OpenAI API Key is missing")
 
     if palm_api_key is None:
-        logger.warning("PaLM API Key is missing")
+        logging.warning("PaLM API Key is missing")
 
     # Load debate templates and initialize history
     templates = load_templates(config_dir)
