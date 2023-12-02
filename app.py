@@ -80,25 +80,33 @@ def respond(client, prompt, model=None):
     responses = completion.choices
     return responses
 
-def make_responses(client, prompt, model=None, rounds=1, verbose=True):
+def make_responses(client, template, agent_name, prompt, model=None, rounds=1, verbose=True):
     if model is None:
         model = "gpt-3.5-turbo"
     responses = []
     response = respond(client, prompt, model)[0].message.content  # initial response content
     responses.append(response)
+    resp_ret = ""
     for i in range(rounds):  # use inner monologue to improve response
-        mono_prompt = f"Prompt:{prompt}\nResponse:{response}\nGiven the above prompt and response, explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made."
+        agent_di = get_agent(template, agent_name)
+        mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
         messages = [{"role":"user", "content": mono_prompt}]
         completion = client.chat.completions.create(model=model, messages=messages)
         resp = completion.choices[0].message.content
-        print(f"Initial Response:{response}\n")
-        print(f"Inner monologue: {resp}\n")
+        if verbose:
+            print(f"Initial Response:{response}\n")
+            print(f"Inner monologue: {resp}\n")
         m = [resp] #re.findall('Action Input: .*$', resp)
         responses.append(m[0])
         response = m[0]
-    return responses
+        resp = re.findall("(^.*)", resp)[0]
+        resp_ret = resp_ret + f"Round {i+1}: {resp}\n\n"
+    return resp_ret, responses
 
 def choose_response(responses, client, prompt, model=None, rounds=1):
+    '''
+    This function is deprecated and only here for reference purposes
+    '''
     '''if model is None:
         model = "gpt-3.5-turbo"
     choose_prompt = f"{prompt} Given the following responses, return the number, and only the number of which response below is the best.\n"
@@ -123,6 +131,10 @@ debates = sorted(templates.keys())
 
 # Select debate
 debate = st.selectbox("Select debate:", tuple(debates))
+n_rounds = st.select_slider(label="Number of debate rounds", options=range(5,31))
+inner_monologue = st.checkbox("Use inner monologue?")
+verbose = st.checkbox("Verbose (print in local terminal)")
+inner_rounds = st.select_slider(label="Number of inner monologue rounds", options=range(1,6))
 template = templates[debate]
 
 # Instantiate agent clients and history
@@ -135,10 +147,6 @@ if "history" not in locals():
 moderator = get_moderator(template)
 debaters = [x for x in agent_names if x != moderator]
 
-
-n_rounds = 5
-inner_monologue = True
-inner_rounds = 2
 # Set default model
 if "openai_model" not in st.session_state:
     st.session_state["openai_model"] = "gpt-3.5-turbo"
@@ -163,7 +171,7 @@ if st.button("Start Debate"):
                 response_content = responses[0].message.content
                 chat_response_content = response_content.split("Action Input:")[-1]
                 if moderator=="EMH":
-                    message_placeholder.markdown("Please state the nature of the moderation emergency.\n" + chat_response_content)
+                    message_placeholder.markdown("Please state the nature of the moderation emergency.\n\n" + chat_response_content)  # joke for Sam's benefit
                 else:
                     message_placeholder.markdown(chat_response_content)
                 history = append_to_history(history, response_content)
@@ -184,17 +192,23 @@ if st.button("Start Debate"):
         else:
             for debater in debaters:
                 with st.chat_message(debater):
+                    if inner_monologue: 
+                        inner_placeholder = st.empty()
                     message_placeholder = st.empty()
                     prompt = make_prompt(template, debater, history)
                     if inner_monologue:
-                        responses = make_responses(agent_clients[debater], prompt, rounds=inner_rounds)  # Create three responses based off of an inner monologue
-                        response_content = choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
-                        print("---")
+                        inner, responses = make_responses(agent_clients[debater], template, debater, prompt, rounds=inner_rounds, verbose=verbose)  # Create three responses based off of an inner monologue
+                        response_content = responses[inner_rounds]  #choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
+                        inner_placeholder.markdown(f"Inner monologue: {inner}\n\n---\n\n")
+                        if verbose:
+                            print("---")
                     else:
                         responses = respond(agent_clients[debater], prompt)
                         response_content = responses[0].message.content
                     chat_response_content = response_content.split("Action Input:")[-1]
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
+                if inner_monologue:
+                    st.session_state.messages.append({"role": f"{debater} Inner Monologue", "content": inner})
                 st.session_state.messages.append({"role": debater, "content": chat_response_content})
 
