@@ -89,6 +89,11 @@ def make_responses(client, template, agent_name, prompt, model=None, rounds=1, v
     resp_ret = ""
     for i in range(rounds):  # use inner monologue to improve response
         agent_di = get_agent(template, agent_name)
+        inner_prompt = ""
+        try:
+            inner_prompt = agent_di['inner_prompt']
+        except:
+            inner_prompt = "Given the above prompt and response explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that the name and identity in the initial response does not change.  Ensure that the argument remains consistent and under 100 words."
         mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
         messages = [{"role":"user", "content": mono_prompt}]
         completion = client.chat.completions.create(model=model, messages=messages)
