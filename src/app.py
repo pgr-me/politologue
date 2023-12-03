@@ -308,28 +308,6 @@ def respond(client, prompt, model=None):
     raise ValueError("No response")
 
 
-def write_output(history: str, summarized_history: str, debate: str, round_: int, dst_dir: Path=Path("output"), prefix: str=""):
-    """
-    Write history and summarized history after each agent speaks.
-    Arguments:
-        history: Chat history.
-        summarized_history: Summarized chat history.
-        debate: Name of debate.
-        round_: Round of debate.
-        dst_dir: Output directory to save text files.
-        timestamp: Optional prefixed timestamp.
-    """
-
-    dst_dir = dst_dir if isinstance(dst_dir, Path) else Path(dst_dir)
-    dst_dir.mkdir(exist_ok=True, parents=True)
-    history = history if isinstance(history, str) else "\n".join(history)
-    summarized_history = summarized_history if isinstance(summarized_history, str) else "\n".join(summarized_history)
-    history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_history.txt"
-    summarized_history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
-    with open(history_dst, "w") as f:
-        f.write("".join(history))
-    with open(summarized_history_dst, "w") as f:
-        f.write("".join(summarized_history))
 def make_responses(
     client, template, agent_name, prompt, model=None, rounds=1, verbose=True
 ):
@@ -485,7 +463,9 @@ if __name__ == "__main__":
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
 
 
             # Last round the moderator decides who won
@@ -515,10 +495,10 @@ if __name__ == "__main__":
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
-                chat_record_dst = DST_DIR / f"{timestamp}_{debate}_{n_rounds}rounds_chat_record.txt"
-                with open(chat_record_dst, "w") as f:
-                    f.write("\n".join(chat_record))
+                file_prefix = f"{timestamp}_last_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
+                with open(DST_DIR / f"{file_prefix}_chat_record.txt", "w") as f: f.write("\n".join(chat_record))
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
@@ -577,4 +557,6 @@ if __name__ == "__main__":
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
                     )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
