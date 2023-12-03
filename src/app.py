@@ -516,7 +516,7 @@ if __name__ == "__main__":
                     {"role": moderator, "content": chat_response_content}
                 )
                 write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
-                chat_record_dst = DST_DIR / f"{debate}_{n_rounds}rounds_chat_record.txt"
+                chat_record_dst = DST_DIR / f"{timestamp}_{debate}_{n_rounds}rounds_chat_record.txt"
                 with open(chat_record_dst, "w") as f:
                     "\n".join(chat_record)
             # Debate occurs between two participants otherwise
