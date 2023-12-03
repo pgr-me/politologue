@@ -2,16 +2,16 @@
 
 # Standard library imports
 import asyncio
+from dataclasses import dataclass
+import datetime
+from enum import Enum
+import logging
+import os
+from pathlib import Path
 import string
 import time
-import yaml
-import os
-import logging
-
-from pathlib import Path
-from enum import Enum
-from dataclasses import dataclass
 from typing import Any
+import yaml
 
 # Third party imports
 from dotenv import load_dotenv, find_dotenv
@@ -23,6 +23,9 @@ import google.generativeai as palm
 
 from openai import OpenAI
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+
+DST_DIR = Path("output")
+DST_DIR.mkdir(exist_ok=True, parents=True)
 
 load_dotenv(find_dotenv())
 
@@ -303,6 +306,30 @@ def respond(client, prompt, model=None):
     raise ValueError("No response")
 
 
+def write_output(history: str, summarized_history: str, debate: str, round_: int, dst_dir: Path=Path("output"), prefix: str=""):
+    """
+    Write history and summarized history after each agent speaks.
+    Arguments:
+        history: Chat history.
+        summarized_history: Summarized chat history.
+        debate: Name of debate.
+        round_: Round of debate.
+        dst_dir: Output directory to save text files.
+        timestamp: Optional prefixed timestamp.
+    """
+
+    dst_dir = dst_dir if isinstance(dst_dir, Path) else Path(dst_dir)
+    dst_dir.mkdir(exist_ok=True, parents=True)
+    history = history if isinstance(history, str) else "\n".join(history)
+    summarized_history = summarized_history if isinstance(summarized_history, str) else "\n".join(summarized_history)
+    history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_history.txt"
+    summarized_history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
+    with open(history_dst, "w") as f:
+        f.write("\n".join(history))
+    with open(summarized_history_dst, "w") as f:
+        f.write("\n".join(summarized_history))
+
+
 if __name__ == "__main__":
     config_dir = Path("./configs")
     logging.info(f"Config path {config_dir}")
@@ -340,6 +367,8 @@ if __name__ == "__main__":
 
     if "history" not in locals():
         history = ""
+    if "timestamp" not in locals():
+        timestamp = str(datetime.datetime.now())[:-10].replace(":", "-")
 
     # keep a chat record to help with summarization
     # the latest literal responses will be appended to a summary
@@ -389,12 +418,12 @@ if __name__ == "__main__":
                     chat_response_content = response_content.split("Action Input:")[-1]
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
-
                     chat_record.append(response_content)
-
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
+                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+
 
             # Last round the moderator decides who won
             elif round_ == n_rounds - 1:
@@ -423,6 +452,10 @@ if __name__ == "__main__":
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
+                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+                chat_record_dst = DST_DIR / f"{debate}_{n_rounds}rounds_chat_record.txt"
+                with open(chat_record_dst, "w") as f:
+                    "\n".join(chat_record)
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
@@ -452,3 +485,4 @@ if __name__ == "__main__":
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
                     )
+                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
