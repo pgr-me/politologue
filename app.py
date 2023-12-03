@@ -186,7 +186,8 @@ if st.button("Start Debate"):
             with st.chat_message(moderator):
                 message_placeholder = st.empty()
                 prompt = make_prompt(template, moderator, history)
-                prompt += "\nDecide who won the debate and explain why."
+                prompt += "\nDecide who won the debate and explain why.  Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), and explanation using the following criteria: Organization and Clarity, Use of Arguments, Use of examples and facts, Use of rebuttal, Presentation Style.  Then give an overall score for each debater."
+                #prompt += "\nDecide who won the debate and explain why. Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down and explanation of methodology in the format:\n\nSpeaker 1: Criterion 1: score, Criterion 2: score, etc., Overall: score\n\nSpeaker 2: Criterion 1: score, Criterion 2: score, etc., Overall: score."
                 responses = respond(agent_clients[moderator], prompt)
                 response_content = responses[0].message.content
                 chat_response_content = response_content.split("Action Input:")[-1]
