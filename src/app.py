@@ -327,9 +327,9 @@ def write_output(history: str, summarized_history: str, debate: str, round_: int
     history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_history.txt"
     summarized_history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
     with open(history_dst, "w") as f:
-        f.write("\n".join(history))
+        f.write("".join(history))
     with open(summarized_history_dst, "w") as f:
-        f.write("\n".join(summarized_history))
+        f.write("".join(summarized_history))
 def make_responses(
     client, template, agent_name, prompt, model=None, rounds=1, verbose=True
 ):
@@ -518,7 +518,7 @@ if __name__ == "__main__":
                 write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
                 chat_record_dst = DST_DIR / f"{timestamp}_{debate}_{n_rounds}rounds_chat_record.txt"
                 with open(chat_record_dst, "w") as f:
-                    "\n".join(chat_record)
+                    f.write("\n".join(chat_record))
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
