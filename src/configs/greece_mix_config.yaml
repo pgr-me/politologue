@@ -4,6 +4,10 @@ prompts:
     Keep your responses to less than 150 words and support your arguments with facts.  Do not repeat an argument.
     Start by introducing yourselves and your role. ${role_description}
 
+    Keep your responses brief. Support your arguments with specific events and facts.
+    Do not repeat an argument.
+    Respond to arguments and counter arguments that have been made.
+
     When responding, please output a response in the following format with two fields Action and Action Input:
     Action: Speak
     Action Input: (You should put what you want to speak use here)
@@ -12,7 +16,12 @@ prompts:
     ${chat_history}
 
 
-    You should now give your response based on the above history. Remember to give your response STRICTLY in the above response format. Do not add any additional field or line break to your response!  Do not repeat something previously said. Finally, remember to introduce yourself when you first speak.
+    You should now give your response based on the above history. 
+    Remember to give your response STRICTLY in the above response format. 
+    Do not add any additional field or line break to your response!  
+    Do not repeat something previously said. 
+    Directly respond 
+    Finally, remember to introduce yourself when you first speak.
 
 name: Greek Democracy versus Philosopher King (gpt-3.5 & bison)
 
