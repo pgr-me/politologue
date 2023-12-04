@@ -364,12 +364,9 @@ def make_responses(
         mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
         messages = [{"role": "user", "content": mono_prompt}]
 
-        logging.info(f">>> mono prompt: {inner_prompt} <<<")
-
         if model in [AgentModel.CHATGPT_35_TURBO.value, AgentModel.CHATGPT_4.value]:
             completion = client.chat.completions.create(model=model, messages=messages)
             resp = completion.choices[0].message.content
-            logging.info(f">>> inner prompt resp: {resp}; \nmodel: {model} <<<")
         elif model in [AgentModel.PALM_TEXT_BISON_001.value]:
             sequences = client(prompt=mono_prompt)
 
@@ -377,7 +374,6 @@ def make_responses(
             completion = Response(message=message)
 
             resp = completion.message.content
-            logging.info(f">>> inner prompt resp: {resp}; \nmodel: {model} <<<")
         else:
             raise ValueError("Invalid model")
 
