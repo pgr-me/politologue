@@ -25,6 +25,8 @@ import google.generativeai as palm
 
 from openai import OpenAI
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from google.generativeai.types import HarmCategory
+from google.ai.generativelanguage import SafetySetting
 
 DST_DIR = Path("output")
 DST_DIR.mkdir(exist_ok=True, parents=True)
@@ -308,7 +310,15 @@ def respond(client, prompt, model=None):
         return [response]
 
     if model == AgentModel.PALM_TEXT_BISON_001.value:
-        sequences = client(prompt=prompt)
+        sequences = client(
+                    prompt=prompt,
+                    safety_settings=[
+                        {
+                        "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                        "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+                        },
+                    ]
+        )
 
         message = Message(content=sequences.result)
         response = Response(message=message)
@@ -368,7 +378,15 @@ def make_responses(
             completion = client.chat.completions.create(model=model, messages=messages)
             resp = completion.choices[0].message.content
         elif model in [AgentModel.PALM_TEXT_BISON_001.value]:
-            sequences = client(prompt=mono_prompt)
+            sequences = client(
+                    prompt=mono_prompt,
+                    safety_settings=[
+                        {
+                        "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                        "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+                        },
+                    ]
+            )
 
             message = Message(content=sequences.result)
             completion = Response(message=message)
@@ -384,6 +402,7 @@ def make_responses(
         m = [resp]  # re.findall('Action Input: .*$', resp)
         responses.append(m[0])
         response = m[0]
+
         resp = re.findall("(^.*)", resp)[0]
         resp_ret = resp_ret + f"Round {i+1}: {resp}\n\n"
     return resp_ret, responses
