@@ -522,7 +522,9 @@ if __name__ == "__main__":
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
 
 
             # Last round the moderator decides who won
@@ -557,10 +559,10 @@ if __name__ == "__main__":
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
-                chat_record_dst = DST_DIR / f"{timestamp}_{debate}_{n_rounds}rounds_chat_record.txt"
-                with open(chat_record_dst, "w") as f:
-                    f.write("\n".join(chat_record))
+                file_prefix = f"{timestamp}_last_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
+                with open(DST_DIR / f"{file_prefix}_chat_record.txt", "w") as f: f.write("\n".join(chat_record))
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
@@ -624,4 +626,6 @@ if __name__ == "__main__":
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
                     )
-                write_output(history, summarized_history, debate, round_, dst_dir=DST_DIR, prefix=timestamp)
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
