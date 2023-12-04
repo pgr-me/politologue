@@ -43,6 +43,7 @@ class AgentModel(Enum):
     """
 
     CHATGPT_35_TURBO = "gpt-3.5-turbo"
+    CHATGPT_4 = "gpt-4"
     FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
     LLAMA_2_7B_CHAT_HF = "meta-llama/Llama-2-7b-chat-hf"
     PALM_TEXT_BISON_001 = "text-bison-001"
@@ -213,7 +214,7 @@ def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
                 model_name=model,
                 client=palm.generate_text,
             )
-        # chat gpt API
+        # openai API gpt 3.5 turbo
         elif model == AgentModel.CHATGPT_35_TURBO.value:
             client = OpenAI(api_key=openai_api_key)
             agent_clients[agent_name] = Agent(
@@ -221,6 +222,15 @@ def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
                 model_name=model,
                 client=client,
             )
+        # openai API gpt 4 API
+        elif model == AgentModel.CHATGPT_4.value:
+            client = OpenAI(api_key=openai_api_key)
+            agent_clients[agent_name] = Agent(
+                name=agent_name,
+                model_name=model,
+                client=client,
+            )
+
         else:
             raise ValueError(f"No model configuration for {model}")
 
@@ -330,6 +340,8 @@ def write_output(history: str, summarized_history: str, debate: str, round_: int
         f.write("".join(history))
     with open(summarized_history_dst, "w") as f:
         f.write("".join(summarized_history))
+
+
 def make_responses(
     client, template, agent_name, prompt, model=None, rounds=1, verbose=True
 ):
@@ -348,10 +360,28 @@ def make_responses(
             inner_prompt = agent_di["inner_prompt"]
         except:
             inner_prompt = "Given the above prompt and response explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that the name and identity in the initial response does not change.  Ensure that the argument remains consistent and under 100 words."
+
         mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
         messages = [{"role": "user", "content": mono_prompt}]
-        completion = client.chat.completions.create(model=model, messages=messages)
-        resp = completion.choices[0].message.content
+
+        logging.info(f">>> mono prompt: {inner_prompt} <<<")
+
+        if model in [AgentModel.CHATGPT_35_TURBO.value, AgentModel.CHATGPT_4.value]:
+            completion = client.chat.completions.create(model=model, messages=messages)
+            resp = completion.choices[0].message.content
+            logging.info(f">>> inner prompt resp: {resp}; \nmodel: {model} <<<")
+        elif model in [AgentModel.PALM_TEXT_BISON_001.value]:
+            sequences = client(prompt=mono_prompt)
+
+            message = Message(content=sequences.result)
+            completion = Response(message=message)
+
+            resp = completion.message.content
+            logging.info(f">>> inner prompt resp: {resp}; \nmodel: {model} <<<")
+        else:
+            raise ValueError("Invalid model")
+
+        #resp = completion.choices[0].message.content
         if verbose:
             print(f"Initial Response:{response}\n")
             print(f"Inner monologue: {resp}\n")
@@ -403,6 +433,9 @@ if __name__ == "__main__":
         label="Number of inner monologue rounds", options=range(1, 6)
     )
     template = templates[debate]
+    summarization = st.checkbox("Reduce prompt size with chat history summarization")
+
+    logging.info(f"n_rounds: {n_rounds}, inner_monologue: {inner_monologue}, verbose: {verbose}, summarization: {summarization}")
 
     if openai_api_key is None:
         logging.warning("OpenAI API Key is missing")
@@ -460,7 +493,10 @@ if __name__ == "__main__":
                     full_response = ""
                     summarized_history = summarize(history, chat_record)
 
-                    prompt = make_prompt(template, moderator, summarized_history)
+                    if summarization:
+                        prompt = make_prompt(template, moderator, summarized_history)
+                    else:
+                        prompt = make_prompt(template, moderator, history)
 
                     responses = respond(
                         agent_clients[moderator].client,
@@ -481,7 +517,8 @@ if __name__ == "__main__":
 
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
-                    chat_record.append(response_content)
+                    chat_record.append(chat_response_content)
+                    logging.info(f"response_content: {response_content}")
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
@@ -496,7 +533,11 @@ if __name__ == "__main__":
                     message_placeholder = st.empty()
                     summarized_history = summarize(history, chat_record)
 
-                    prompt = make_prompt(template, moderator, summarized_history)
+                    if summarization:
+                        prompt = make_prompt(template, moderator, summarized_history)
+                    else:
+                        prompt = make_prompt(template, moderator, history)
+
                     prompt += "\nDecide who won the debate and explain why.  Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), and explanation using the following criteria: Organization and Clarity, Use of Arguments, Use of examples and facts, Use of rebuttal, Presentation Style.  Then give an overall score for each debater."
 
                     responses = respond(
@@ -510,7 +551,8 @@ if __name__ == "__main__":
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
 
-                    chat_record.append(response_content)
+                    chat_record.append(chat_response_content)
+                    logging.info(f"response_content: {response_content}")
 
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
@@ -531,7 +573,11 @@ if __name__ == "__main__":
                         message_placeholder = st.empty()
                         summarized_history = summarize(history, chat_record)
 
-                        prompt = make_prompt(template, debater, summarized_history)
+                        if summarization:
+                            prompt = make_prompt(template, moderator, summarized_history)
+                        else:
+                            prompt = make_prompt(template, moderator, history)
+
                         if inner_monologue:
                             inner, responses = make_responses(
                                 agent_clients[debater].client,
@@ -572,7 +618,8 @@ if __name__ == "__main__":
                         message_placeholder.markdown(chat_response_content)
                         history = append_to_history(history, response_content)
 
-                        chat_record.append(response_content)
+                        chat_record.append(chat_response_content)
+                        logging.info(f"chat response content: {chat_response_content}")
 
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
