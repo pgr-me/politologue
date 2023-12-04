@@ -572,9 +572,9 @@ if __name__ == "__main__":
                         summarized_history = summarize(history, chat_record)
 
                         if summarization:
-                            prompt = make_prompt(template, moderator, summarized_history)
+                            prompt = make_prompt(template, debater, summarized_history)
                         else:
-                            prompt = make_prompt(template, moderator, history)
+                            prompt = make_prompt(template, debater, history)
 
                         if inner_monologue:
                             inner, responses = make_responses(
