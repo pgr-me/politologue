@@ -7,7 +7,6 @@ import time
 import yaml
 import os
 import logging
-import re
 
 from pathlib import Path
 from enum import Enum
@@ -303,48 +302,6 @@ def respond(client, prompt, model=None):
 
     raise ValueError("No response")
 
-def make_responses(client, template, agent_name, prompt, model=None, rounds=1, verbose=True):
-    if model is None:
-        model = "gpt-3.5-turbo"
-    responses = []
-    response = respond(client, prompt, model)[0].message.content  # initial response content
-    responses.append(response)
-    resp_ret = ""
-    for i in range(rounds):  # use inner monologue to improve response
-        agent_di = get_agent(template, agent_name)
-        inner_prompt = ""
-        try:
-            inner_prompt = agent_di['inner_prompt']
-        except:
-            inner_prompt = "Given the above prompt and response explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that the name and identity in the initial response does not change.  Ensure that the argument remains consistent and under 100 words."
-        mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
-        messages = [{"role":"user", "content": mono_prompt}]
-        completion = client.chat.completions.create(model=model, messages=messages)
-        resp = completion.choices[0].message.content
-        if verbose:
-            print(f"Initial Response:{response}\n")
-            print(f"Inner monologue: {resp}\n")
-        m = [resp] #re.findall('Action Input: .*$', resp)
-        responses.append(m[0])
-        response = m[0]
-        resp = re.findall("(^.*)", resp)[0]
-        resp_ret = resp_ret + f"Round {i+1}: {resp}\n\n"
-    return resp_ret, responses
-
-def choose_response(responses, client, prompt, model=None, rounds=1):
-    '''
-    This function is deprecated and only here for reference purposes
-    '''
-    '''if model is None:
-        model = "gpt-3.5-turbo"
-    choose_prompt = f"{prompt} Given the following responses, return the number, and only the number of which response below is the best.\n"
-    for i in range(rounds+1):
-        choose_prompt+=f"{i}. {responses[i]}\n"
-    print(f"\n\nPrompt: {choose_prompt}")
-    messages = [{"role":"user", "content": prompt}]
-    completion = client.chat.completions.create(model=model, messages=messages)
-    print(completion.choices[0].message.content)'''
-    return responses[rounds]
 
 if __name__ == "__main__":
     config_dir = Path("./configs")
@@ -357,23 +314,19 @@ if __name__ == "__main__":
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     palm_api_key = os.environ.get("PALM_API_KEY")
 
-    ## Load debate templates and initialize history
+    if openai_api_key is None:
+        logging.warning("OpenAI API Key is missing")
+
+    if palm_api_key is None:
+        logging.warning("PaLM API Key is missing")
+
+    # Load debate templates and initialize history
     templates = load_templates(config_dir)
     debates = sorted(templates.keys())
 
     # Select debate
     debate = st.selectbox("Select debate:", tuple(debates))
-    n_rounds = st.select_slider(label="Number of debate rounds", options=range(5,31))
-    inner_monologue = st.checkbox("Use inner monologue?")
-    verbose = st.checkbox("Verbose (print in local terminal)")
-    inner_rounds = st.select_slider(label="Number of inner monologue rounds", options=range(1,6))
     template = templates[debate]
-
-    if openai_api_key is None:
-        logging.warning("OpenAI API Key is missing")
-    if palm_api_key is None:
-        logging.warning("PaLM API Key is missing")
-
 
     # Instantiate agent clients and history
     agent_clients = instantiate_agents(
@@ -434,14 +387,9 @@ if __name__ == "__main__":
 
                     response_content = responses[0].message.content
                     chat_response_content = response_content.split("Action Input:")[-1]
-
-                    if moderator=="EMH":
-                        message_placeholder.markdown("Please state the nature of the moderation emergency.\n\n" + chat_response_content)  # joke for Sam's benefit
-                    else:
-                        message_placeholder.markdown(chat_response_content)
-
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
+
                     chat_record.append(response_content)
 
                 st.session_state.messages.append(
@@ -457,8 +405,8 @@ if __name__ == "__main__":
                     summarized_history = summarize(history, chat_record)
 
                     prompt = make_prompt(template, moderator, summarized_history)
-                    prompt += "\nDecide who won the debate and explain why.  Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), and explanation using the following criteria: Organization and Clarity, Use of Arguments, Use of examples and facts, Use of rebuttal, Presentation Style.  Then give an overall score for each debater."
-    
+                    prompt += "\nDecide who won the debate and explain why."
+
                     responses = respond(
                         agent_clients[moderator].client,
                         prompt,
@@ -485,28 +433,14 @@ if __name__ == "__main__":
                         summarized_history = summarize(history, chat_record)
 
                         prompt = make_prompt(template, debater, summarized_history)
-                        if inner_monologue:
-                            inner, responses = make_responses(agent_clients[debater], template, debater, prompt, rounds=inner_rounds, verbose=verbose)  # Create three responses based off of an inner monologue
-                            response_content = responses[inner_rounds]  #choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
-                            inner_placeholder.markdown(f"Inner monologue: {inner}\n\n---\n\n")
-                            if verbose:
-                                print("---")
-                        else:
-                            #responses = respond(agent_clients[debater], prompt)
-                            responses = respond(
-                                agent_clients[debater].client,
-                                prompt,
-                                model=agent_clients[debater].model_name,
-                            )
-                            response_content = responses[0].message.content
 
-                        #responses = respond(
-                        #    agent_clients[debater].client,
-                        #    prompt,
-                        #    model=agent_clients[debater].model_name,
-                        #)
+                        responses = respond(
+                            agent_clients[debater].client,
+                            prompt,
+                            model=agent_clients[debater].model_name,
+                        )
 
-                        #response_content = responses[0].message.content
+                        response_content = responses[0].message.content
                         chat_response_content = response_content.split("Action Input:")[
                             -1
                         ]

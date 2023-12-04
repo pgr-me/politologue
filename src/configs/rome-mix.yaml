@@ -1,0 +1,99 @@
+prompts:
+  prompt: &prompt |-
+    You are in a debate. The debate topic is Roman Imperialism versus Roman Republicanism.
+    Keep your responses brief. Support your arguments with specific events and facts.
+    Do not repeat an argument.
+    Respond to arguments and counter arguments that have been made.
+
+    Start by introducing yourself briefly using your role as context: ${role_description}
+
+    When responding, please output a response in the following format with two fields Action and Action Input:
+    Name: (State your name)
+    Action: Speak
+    Action Input: (You should put what you want to speak here)
+
+    Here is the conversation history:
+    ===START HISTORY===
+    ${chat_history}
+    ===END HISTORY===
+
+    You should now give your response based on the above history.
+    Remember to give your response STRICTLY in the above response format. 
+    Do not add any additional field or line break to your response!  
+
+    RESPONSE:
+
+name: Roman Imperialism versus Roman Republicanism Bison & ChatGPT
+
+environment:
+  env_type: sim-basic
+  max_turns: 30 
+  rule:
+    order:
+      type: sequential
+    visibility:
+      type: all
+    selector:
+      type: basic
+    updater:
+      type: basic
+    describer:
+      type: basic
+
+agents:
+  - agent_type: conversation
+    name: Cicero 
+    moderator: true
+    role_description: 
+      You are Marcus Tullius Cicero the historical Roman figure.
+      You are a knowledgeable moderator of debates and Magistrate in ancient Rome. 
+      The debaters are Julius Caesar and Marcus Porcius Cato.
+      Your commentary will be short. 
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: text-bison 
+      model: 'text-bison-001'
+      temperature: 0.7
+      max_tokens: 10000 
+  - agent_type: conversation
+    name: Cato 
+    moderator: false
+    role_description:
+        You are Marcus Porcius Cato the historical Roman figure. 
+        You are interested in changing opposing opinions through superior debate. 
+        You are a superior orator and will leverage this skill in debate.
+        You will leverage your first-hand historical knowledge.
+        You are a politician.
+        You believe in representative government.
+
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: text-bison 
+      model: 'text-bison-001'
+      temperature: 0.7
+      max_tokens: 10000 
+  - agent_type: conversation
+    name: Julius 
+    moderator: false
+    role_description: 
+      You are Julius Caesar the historical Roman figure. 
+      You are interested in changing opposing opinions through superior debate. 
+      You are a superior tactician and will leverage this skill in debate.
+      You will leverage your first-hand historical knowledge.
+      You are a patrician, a successful general, and statesman.
+      You believe in empire and imperial government.
+   
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: gpt-3.5-turbo
+      model: 'gpt-3.5-turbo'
+      temperature: 0.7
+      max_tokens: 250 
+
+tools:

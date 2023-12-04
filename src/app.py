@@ -2,17 +2,18 @@
 
 # Standard library imports
 import asyncio
-import string
-import time
-import yaml
-import os
+from dataclasses import dataclass
+import datetime
+from enum import Enum
 import logging
+import os
 import re
 
 from pathlib import Path
-from enum import Enum
-from dataclasses import dataclass
+import string
+import time
 from typing import Any
+import yaml
 
 # Third party imports
 from dotenv import load_dotenv, find_dotenv
@@ -24,6 +25,9 @@ import google.generativeai as palm
 
 from openai import OpenAI
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+
+DST_DIR = Path("output")
+DST_DIR.mkdir(exist_ok=True, parents=True)
 
 load_dotenv(find_dotenv())
 
@@ -39,6 +43,7 @@ class AgentModel(Enum):
     """
 
     CHATGPT_35_TURBO = "gpt-3.5-turbo"
+    CHATGPT_4 = "gpt-4"
     FALCON_7B_INSTRUCT = "tiiuae/falcon-7b-instruct"
     LLAMA_2_7B_CHAT_HF = "meta-llama/Llama-2-7b-chat-hf"
     PALM_TEXT_BISON_001 = "text-bison-001"
@@ -209,7 +214,7 @@ def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
                 model_name=model,
                 client=palm.generate_text,
             )
-        # chat gpt API
+        # openai API gpt 3.5 turbo
         elif model == AgentModel.CHATGPT_35_TURBO.value:
             client = OpenAI(api_key=openai_api_key)
             agent_clients[agent_name] = Agent(
@@ -217,6 +222,15 @@ def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
                 model_name=model,
                 client=client,
             )
+        # openai API gpt 4 API
+        elif model == AgentModel.CHATGPT_4.value:
+            client = OpenAI(api_key=openai_api_key)
+            agent_clients[agent_name] = Agent(
+                name=agent_name,
+                model_name=model,
+                client=client,
+            )
+
         else:
             raise ValueError(f"No model configuration for {model}")
 
@@ -303,39 +317,83 @@ def respond(client, prompt, model=None):
 
     raise ValueError("No response")
 
-def make_responses(client, template, agent_name, prompt, model=None, rounds=1, verbose=True):
+
+def write_output(history: str, summarized_history: str, debate: str, round_: int, dst_dir: Path=Path("output"), prefix: str=""):
+    """
+    Write history and summarized history after each agent speaks.
+    Arguments:
+        history: Chat history.
+        summarized_history: Summarized chat history.
+        debate: Name of debate.
+        round_: Round of debate.
+        dst_dir: Output directory to save text files.
+        timestamp: Optional prefixed timestamp.
+    """
+
+    dst_dir = dst_dir if isinstance(dst_dir, Path) else Path(dst_dir)
+    dst_dir.mkdir(exist_ok=True, parents=True)
+    history = history if isinstance(history, str) else "\n".join(history)
+    summarized_history = summarized_history if isinstance(summarized_history, str) else "\n".join(summarized_history)
+    history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_history.txt"
+    summarized_history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
+    with open(history_dst, "w") as f:
+        f.write("".join(history))
+    with open(summarized_history_dst, "w") as f:
+        f.write("".join(summarized_history))
+
+
+def make_responses(
+    client, template, agent_name, prompt, model=None, rounds=1, verbose=True
+):
     if model is None:
         model = "gpt-3.5-turbo"
     responses = []
-    response = respond(client, prompt, model)[0].message.content  # initial response content
+    response = respond(client, prompt, model)[
+        0
+    ].message.content  # initial response content
     responses.append(response)
     resp_ret = ""
     for i in range(rounds):  # use inner monologue to improve response
         agent_di = get_agent(template, agent_name)
         inner_prompt = ""
         try:
-            inner_prompt = agent_di['inner_prompt']
+            inner_prompt = agent_di["inner_prompt"]
         except:
             inner_prompt = "Given the above prompt and response explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that the name and identity in the initial response does not change.  Ensure that the argument remains consistent and under 100 words."
+
         mono_prompt = f"{prompt}\nResponse:{response}\n{agent_di['inner_prompt']}"
-        messages = [{"role":"user", "content": mono_prompt}]
-        completion = client.chat.completions.create(model=model, messages=messages)
-        resp = completion.choices[0].message.content
+        messages = [{"role": "user", "content": mono_prompt}]
+
+        if model in [AgentModel.CHATGPT_35_TURBO.value, AgentModel.CHATGPT_4.value]:
+            completion = client.chat.completions.create(model=model, messages=messages)
+            resp = completion.choices[0].message.content
+        elif model in [AgentModel.PALM_TEXT_BISON_001.value]:
+            sequences = client(prompt=mono_prompt)
+
+            message = Message(content=sequences.result)
+            completion = Response(message=message)
+
+            resp = completion.message.content
+        else:
+            raise ValueError("Invalid model")
+
+        #resp = completion.choices[0].message.content
         if verbose:
             print(f"Initial Response:{response}\n")
             print(f"Inner monologue: {resp}\n")
-        m = [resp] #re.findall('Action Input: .*$', resp)
+        m = [resp]  # re.findall('Action Input: .*$', resp)
         responses.append(m[0])
         response = m[0]
         resp = re.findall("(^.*)", resp)[0]
         resp_ret = resp_ret + f"Round {i+1}: {resp}\n\n"
     return resp_ret, responses
 
+
 def choose_response(responses, client, prompt, model=None, rounds=1):
-    '''
+    """
     This function is deprecated and only here for reference purposes
-    '''
-    '''if model is None:
+    """
+    """if model is None:
         model = "gpt-3.5-turbo"
     choose_prompt = f"{prompt} Given the following responses, return the number, and only the number of which response below is the best.\n"
     for i in range(rounds+1):
@@ -343,8 +401,9 @@ def choose_response(responses, client, prompt, model=None, rounds=1):
     print(f"\n\nPrompt: {choose_prompt}")
     messages = [{"role":"user", "content": prompt}]
     completion = client.chat.completions.create(model=model, messages=messages)
-    print(completion.choices[0].message.content)'''
+    print(completion.choices[0].message.content)"""
     return responses[rounds]
+
 
 if __name__ == "__main__":
     config_dir = Path("./configs")
@@ -363,17 +422,21 @@ if __name__ == "__main__":
 
     # Select debate
     debate = st.selectbox("Select debate:", tuple(debates))
-    n_rounds = st.select_slider(label="Number of debate rounds", options=range(5,31))
+    n_rounds = st.select_slider(label="Number of debate rounds", options=range(5, 31))
     inner_monologue = st.checkbox("Use inner monologue?")
     verbose = st.checkbox("Verbose (print in local terminal)")
-    inner_rounds = st.select_slider(label="Number of inner monologue rounds", options=range(1,6))
+    inner_rounds = st.select_slider(
+        label="Number of inner monologue rounds", options=range(1, 6)
+    )
     template = templates[debate]
+    summarization = st.checkbox("Reduce prompt size with chat history summarization")
+
+    logging.info(f"n_rounds: {n_rounds}, inner_monologue: {inner_monologue}, verbose: {verbose}, summarization: {summarization}")
 
     if openai_api_key is None:
         logging.warning("OpenAI API Key is missing")
     if palm_api_key is None:
         logging.warning("PaLM API Key is missing")
-
 
     # Instantiate agent clients and history
     agent_clients = instantiate_agents(
@@ -387,6 +450,8 @@ if __name__ == "__main__":
 
     if "history" not in locals():
         history = ""
+    if "timestamp" not in locals():
+        timestamp = str(datetime.datetime.now())[:-10].replace(":", "-")
 
     # keep a chat record to help with summarization
     # the latest literal responses will be appended to a summary
@@ -424,7 +489,10 @@ if __name__ == "__main__":
                     full_response = ""
                     summarized_history = summarize(history, chat_record)
 
-                    prompt = make_prompt(template, moderator, summarized_history)
+                    if summarization:
+                        prompt = make_prompt(template, moderator, summarized_history)
+                    else:
+                        prompt = make_prompt(template, moderator, history)
 
                     responses = respond(
                         agent_clients[moderator].client,
@@ -435,18 +503,25 @@ if __name__ == "__main__":
                     response_content = responses[0].message.content
                     chat_response_content = response_content.split("Action Input:")[-1]
 
-                    if moderator=="EMH":
-                        message_placeholder.markdown("Please state the nature of the moderation emergency.\n\n" + chat_response_content)  # joke for Sam's benefit
+                    if moderator == "EMH":
+                        message_placeholder.markdown(
+                            "Please state the nature of the moderation emergency.\n\n"
+                            + chat_response_content
+                        )  # joke for Sam's benefit
                     else:
                         message_placeholder.markdown(chat_response_content)
 
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
-                    chat_record.append(response_content)
-
+                    chat_record.append(chat_response_content)
+                    logging.info(f"response_content: {response_content}")
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
+
 
             # Last round the moderator decides who won
             elif round_ == n_rounds - 1:
@@ -456,9 +531,13 @@ if __name__ == "__main__":
                     message_placeholder = st.empty()
                     summarized_history = summarize(history, chat_record)
 
-                    prompt = make_prompt(template, moderator, summarized_history)
+                    if summarization:
+                        prompt = make_prompt(template, moderator, summarized_history)
+                    else:
+                        prompt = make_prompt(template, moderator, history)
+
                     prompt += "\nDecide who won the debate and explain why.  Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), and explanation using the following criteria: Organization and Clarity, Use of Arguments, Use of examples and facts, Use of rebuttal, Presentation Style.  Then give an overall score for each debater."
-    
+
                     responses = respond(
                         agent_clients[moderator].client,
                         prompt,
@@ -470,29 +549,53 @@ if __name__ == "__main__":
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
 
-                    chat_record.append(response_content)
+                    chat_record.append(chat_response_content)
+                    logging.info(f"response_content: {response_content}")
 
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
+                file_prefix = f"{timestamp}_last_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
+                with open(DST_DIR / f"{file_prefix}_chat_record.txt", "w") as f: f.write("\n".join(chat_record))
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
 
                 for debater in debaters:
                     with st.chat_message(debater):
+                        if inner_monologue:
+                            inner_placeholder = st.empty()
+
                         message_placeholder = st.empty()
                         summarized_history = summarize(history, chat_record)
 
-                        prompt = make_prompt(template, debater, summarized_history)
+                        if summarization:
+                            prompt = make_prompt(template, moderator, summarized_history)
+                        else:
+                            prompt = make_prompt(template, moderator, history)
+
                         if inner_monologue:
-                            inner, responses = make_responses(agent_clients[debater], template, debater, prompt, rounds=inner_rounds, verbose=verbose)  # Create three responses based off of an inner monologue
-                            response_content = responses[inner_rounds]  #choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
-                            inner_placeholder.markdown(f"Inner monologue: {inner}\n\n---\n\n")
+                            inner, responses = make_responses(
+                                agent_clients[debater].client,
+                                template,
+                                debater,
+                                prompt,
+                                rounds=inner_rounds,
+                                verbose=verbose,
+                                model=agent_clients[debater].model_name,
+                            )  # Create three responses based off of an inner monologue
+                            response_content = responses[
+                                inner_rounds
+                            ]  # choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
+                            inner_placeholder.markdown(
+                                f"Inner monologue: {inner}\n\n---\n\n"
+                            )
                             if verbose:
                                 print("---")
                         else:
-                            #responses = respond(agent_clients[debater], prompt)
+                            # responses = respond(agent_clients[debater], prompt)
                             responses = respond(
                                 agent_clients[debater].client,
                                 prompt,
@@ -500,21 +603,25 @@ if __name__ == "__main__":
                             )
                             response_content = responses[0].message.content
 
-                        #responses = respond(
+                        # responses = respond(
                         #    agent_clients[debater].client,
                         #    prompt,
                         #    model=agent_clients[debater].model_name,
-                        #)
+                        # )
 
-                        #response_content = responses[0].message.content
+                        # response_content = responses[0].message.content
                         chat_response_content = response_content.split("Action Input:")[
                             -1
                         ]
                         message_placeholder.markdown(chat_response_content)
                         history = append_to_history(history, response_content)
 
-                        chat_record.append(response_content)
+                        chat_record.append(chat_response_content)
+                        logging.info(f"chat response content: {chat_response_content}")
 
                     st.session_state.messages.append(
                         {"role": debater, "content": chat_response_content}
                     )
+                file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
