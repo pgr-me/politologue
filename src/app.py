@@ -114,7 +114,9 @@ def summarize(history, chat_record):
     # if the size of the chat history is too large, summarize it
     # include the last portion of chat for continuity
     if len(chat_record) > 3:
-        chunks = chunk_text(history, chunk_size=1024)
+        chat_history = " ".join(chat_record)
+
+        chunks = chunk_text(chat_history, chunk_size=1024)
         summaries = [
             summarizer(chunk, max_length=100)[0]["summary_text"] for chunk in chunks
         ]
@@ -311,13 +313,13 @@ def respond(client, prompt, model=None):
 
     if model == AgentModel.PALM_TEXT_BISON_001.value:
         sequences = client(
-                    prompt=prompt,
-                    safety_settings=[
-                        {
-                        "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
-                        "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
-                        },
-                    ]
+            prompt=prompt,
+            safety_settings=[
+                {
+                    "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                    "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+                },
+            ],
         )
 
         message = Message(content=sequences.result)
@@ -328,7 +330,14 @@ def respond(client, prompt, model=None):
     raise ValueError("No response")
 
 
-def write_output(history: str, summarized_history: str, debate: str, round_: int, dst_dir: Path=Path("output"), prefix: str=""):
+def write_output(
+    history: str,
+    summarized_history: str,
+    debate: str,
+    round_: int,
+    dst_dir: Path = Path("output"),
+    prefix: str = "",
+):
     """
     Write history and summarized history after each agent speaks.
     Arguments:
@@ -343,9 +352,15 @@ def write_output(history: str, summarized_history: str, debate: str, round_: int
     dst_dir = dst_dir if isinstance(dst_dir, Path) else Path(dst_dir)
     dst_dir.mkdir(exist_ok=True, parents=True)
     history = history if isinstance(history, str) else "\n".join(history)
-    summarized_history = summarized_history if isinstance(summarized_history, str) else "\n".join(summarized_history)
+    summarized_history = (
+        summarized_history
+        if isinstance(summarized_history, str)
+        else "\n".join(summarized_history)
+    )
     history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_history.txt"
-    summarized_history_dst = dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
+    summarized_history_dst = (
+        dst_dir / f"{prefix}_{debate}_{round_}_{moderator}_summarized_history.txt"
+    )
     with open(history_dst, "w") as f:
         f.write("".join(history))
     with open(summarized_history_dst, "w") as f:
@@ -379,13 +394,13 @@ def make_responses(
             resp = completion.choices[0].message.content
         elif model in [AgentModel.PALM_TEXT_BISON_001.value]:
             sequences = client(
-                    prompt=mono_prompt,
-                    safety_settings=[
-                        {
+                prompt=mono_prompt,
+                safety_settings=[
+                    {
                         "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
                         "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
-                        },
-                    ]
+                    },
+                ],
             )
 
             message = Message(content=sequences.result)
@@ -395,7 +410,7 @@ def make_responses(
         else:
             raise ValueError("Invalid model")
 
-        #resp = completion.choices[0].message.content
+        # resp = completion.choices[0].message.content
         if verbose:
             print(f"Initial Response:{response}\n")
             print(f"Inner monologue: {resp}\n")
@@ -450,7 +465,9 @@ if __name__ == "__main__":
     template = templates[debate]
     summarization = st.checkbox("Reduce prompt size with chat history summarization")
 
-    logging.info(f"n_rounds: {n_rounds}, inner_monologue: {inner_monologue}, verbose: {verbose}, summarization: {summarization}")
+    logging.info(
+        f"n_rounds: {n_rounds}, inner_monologue: {inner_monologue}, verbose: {verbose}, summarization: {summarization}"
+    )
 
     if openai_api_key is None:
         logging.warning("OpenAI API Key is missing")
@@ -538,9 +555,10 @@ if __name__ == "__main__":
                     {"role": moderator, "content": chat_response_content}
                 )
                 file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
-                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
-                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
-
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f:
+                    f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f:
+                    f.write(summarized_history)
 
             # Last round the moderator decides who won
             elif round_ == n_rounds - 1:
@@ -575,9 +593,12 @@ if __name__ == "__main__":
                     {"role": moderator, "content": chat_response_content}
                 )
                 file_prefix = f"{timestamp}_last_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
-                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
-                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
-                with open(DST_DIR / f"{file_prefix}_chat_record.txt", "w") as f: f.write("\n".join(chat_record))
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f:
+                    f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f:
+                    f.write(summarized_history)
+                with open(DST_DIR / f"{file_prefix}_chat_record.txt", "w") as f:
+                    f.write("\n".join(chat_record))
             # Debate occurs between two participants otherwise
             else:
                 logging.info(f"Round: {round_}")
@@ -642,5 +663,7 @@ if __name__ == "__main__":
                         {"role": debater, "content": chat_response_content}
                     )
                 file_prefix = f"{timestamp}_{debate}_{n_rounds}rounds_{inner_monologue}innermono_{inner_rounds}innerrounds_{round_}round"
-                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f: f.write(history)
-                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f: f.write(summarized_history)
+                with open(DST_DIR / f"{file_prefix}_history.txt", "w") as f:
+                    f.write(history)
+                with open(DST_DIR / f"{file_prefix}_summarized_history.txt", "w") as f:
+                    f.write(summarized_history)

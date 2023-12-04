@@ -4,8 +4,7 @@ prompts:
     Keep your responses to fewer than 150 words and support your arguments with facts.  Do not repeat an argument.
     Start by introducing yourselves and your role. ${role_description}
 
-    Keep your responses brief. Support your arguments with specific events and facts.
-    Do not repeat an argument.
+    Support your arguments with specific events and facts.
     Respond to arguments and counter arguments that have been made.
 
     When responding, please output a response in the following format with two fields Action and Action Input:
