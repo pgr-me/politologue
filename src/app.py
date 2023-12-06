@@ -35,7 +35,8 @@ load_dotenv(find_dotenv())
 
 # configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - %(message)s",
 )
 
 
@@ -107,27 +108,75 @@ def summarize(history, chat_record):
     """
     device = 0 if torch.cuda.is_available() else -1
 
-    summarizer = pipeline(
-        "summarization", model="pszemraj/led-large-book-summary", device=device
-    )
+    # summarizer = pipeline(
+    #    "summarization", model="pszemraj/led-large-book-summary", device=device
+    # )
+    palm.configure(api_key=palm_api_key)
+    summarizer = palm.generate_text
 
     # if the size of the chat history is too large, summarize it
     # include the last portion of chat for continuity
-    if len(chat_record) > 3:
+    if len(chat_record) > 1:
         chat_history = " ".join(chat_record)
+        # logging.info(f"chat history: {chat_history}")
 
-        chunks = chunk_text(chat_history, chunk_size=1024)
-        summaries = [
-            summarizer(chunk, max_length=100)[0]["summary_text"] for chunk in chunks
-        ]
-        summary = " ".join(summaries)
-        summary = "\nDebate Summary:\n" + summary
+        # chunks = chunk_text(chat_history, chunk_size=1024)
+        # summaries = [
+        #    summarizer(chunk, max_length=100)[0]["summary_text"] for chunk in chunks
+        # ]
+        # summary = " ".join(summaries)
+        # summary = "\nDebate Summary:\n" + summary
 
-        chat = " ".join(chat_record[-2:])
-        chat = "\nMost Recent Chat History:\n" + chat
-        summary = summary + chat
+        # chat = " ".join(chat_record[-2:])
+        # chat = "\nMost Recent Chat History:\n" + chat
+        # summary = summary + chat
+
+        postfix = """
+        \n
+        INSTRUCTIONS:
+        Summarize the previous chat history into concise bullet points. It includes a moderator and two debaters.
+        Significantly reduce the overall size.
+        Capture main points from the arguments and examples.
+        Attribute the main points to the debater that introduced them.
+
+        The chat format is:
+            Name: <Name>
+            Action: <Action> 
+            Action Input: <Arguments, Examples>
+
+        The summary format will look like:
+            *moderator*:
+                * point 1
+                * point 2
+                * etc
+            *debater 1*
+                * point 1
+                * point 2
+                * ect
+            *debater 2*
+                * point 1
+                * point 2
+                * etc
+        """
+        prompt = chat_history + postfix
+
+        logging.info(f"summarizer prompt: {prompt}")
+
+        sequences = summarizer(
+            prompt=prompt,
+            safety_settings=[
+                {
+                    "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                    "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+                },
+            ],
+        )
+
+        summary = sequences.result
 
         logging.info(f"Summarizing history: \n{summary}")
+
+        return summary
 
     return history
 
@@ -253,6 +302,12 @@ def load_templates(config_dir):
 
 
 def make_prompt(template, agent_name, history):
+    """
+    Description:
+        - generate a prompt
+        - insert values into the prompt template (taken from the config file)
+        - values: chat history, role description (persona)
+    """
     history = history if history else "This is the beginning of the debate."
 
     t = string.Template(template["prompts"]["prompt"])
@@ -261,13 +316,13 @@ def make_prompt(template, agent_name, history):
 
     prompt = t.substitute(role_description=role_desc, chat_history=history)
 
+    logging.info(f"prompt size: {len(prompt.split(' '))}")
+
     return prompt
 
 
 def respond(client, prompt, model=None):
-    if model is None:
-        model = AgentModel.CHATGPT_35_TURBO.value
-
+    # chatgpt
     if model == AgentModel.CHATGPT_35_TURBO.value:
         messages = [{"role": "user", "content": prompt}]
         completion = client.chat.completions.create(model=model, messages=messages)
@@ -275,7 +330,8 @@ def respond(client, prompt, model=None):
 
         return responses
 
-    if model == AgentModel.FALCON_7B_INSTRUCT.value:
+    # falcon
+    elif model == AgentModel.FALCON_7B_INSTRUCT.value:
         sequences = client(
             prompt, max_length=10000, do_sample=True, top_k=10, num_return_sequences=1
         )
@@ -293,7 +349,8 @@ def respond(client, prompt, model=None):
 
         return [response]
 
-    if model == AgentModel.LLAMA_2_7B_CHAT_HF.value:
+    # llama
+    elif model == AgentModel.LLAMA_2_7B_CHAT_HF.value:
         sequences = client(
             prompt, max_length=10000, do_sample=True, top_k=10, num_return_sequences=1
         )
@@ -311,7 +368,8 @@ def respond(client, prompt, model=None):
 
         return [response]
 
-    if model == AgentModel.PALM_TEXT_BISON_001.value:
+    # bison
+    elif model == AgentModel.PALM_TEXT_BISON_001.value:
         sequences = client(
             prompt=prompt,
             safety_settings=[
@@ -326,8 +384,8 @@ def respond(client, prompt, model=None):
         response = Response(message=message)
 
         return [response]
-
-    raise ValueError("No response")
+    else:
+        raise ValueError("No model matched for response creation")
 
 
 def write_output(
@@ -412,8 +470,10 @@ def make_responses(
 
         # resp = completion.choices[0].message.content
         if verbose:
-            print(f"Initial Response:{response}\n")
-            print(f"Inner monologue: {resp}\n")
+            # print(f"Initial Response:{response}\n")
+            # print(f"Inner monologue: {resp}\n")
+            logging.info(f"Initial Response: {response}")
+            logging.info(f"Inner monologue: {resp}")
         m = [resp]  # re.findall('Action Input: .*$', resp)
         responses.append(m[0])
         response = m[0]
@@ -493,6 +553,7 @@ if __name__ == "__main__":
     # the latest literal responses will be appended to a summary
     # this should help distil the prompt context size
     chat_record = []
+    annotated_chat_record = []
 
     # if round_ not in locals():
     #    round_ = 0
@@ -523,7 +584,7 @@ if __name__ == "__main__":
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
                     full_response = ""
-                    summarized_history = summarize(history, chat_record)
+                    summarized_history = summarize(history, annotated_chat_record)
 
                     if summarization:
                         prompt = make_prompt(template, moderator, summarized_history)
@@ -550,7 +611,10 @@ if __name__ == "__main__":
                     message_placeholder.markdown(chat_response_content)
                     history = append_to_history(history, response_content)
                     chat_record.append(chat_response_content)
+                    annotated_chat_record.append(response_content)
+
                     logging.info(f"response_content: {response_content}")
+
                 st.session_state.messages.append(
                     {"role": moderator, "content": chat_response_content}
                 )
@@ -566,7 +630,7 @@ if __name__ == "__main__":
 
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
-                    summarized_history = summarize(history, chat_record)
+                    summarized_history = summarize(history, annotated_chat_record)
 
                     if summarization:
                         prompt = make_prompt(template, moderator, summarized_history)
@@ -587,6 +651,8 @@ if __name__ == "__main__":
                     history = append_to_history(history, response_content)
 
                     chat_record.append(chat_response_content)
+                    annotated_chat_record.append(response_content)
+
                     logging.info(f"response_content: {response_content}")
 
                 st.session_state.messages.append(
@@ -609,7 +675,7 @@ if __name__ == "__main__":
                             inner_placeholder = st.empty()
 
                         message_placeholder = st.empty()
-                        summarized_history = summarize(history, chat_record)
+                        summarized_history = summarize(history, annotated_chat_record)
 
                         if summarization:
                             prompt = make_prompt(template, debater, summarized_history)
@@ -633,7 +699,8 @@ if __name__ == "__main__":
                                 f"Inner monologue: {inner}\n\n---\n\n"
                             )
                             if verbose:
-                                print("---")
+                                # print("---")
+                                logging.info(f"verbose: {verbose} --------")
                         else:
                             # responses = respond(agent_clients[debater], prompt)
                             responses = respond(
@@ -643,12 +710,6 @@ if __name__ == "__main__":
                             )
                             response_content = responses[0].message.content
 
-                        # responses = respond(
-                        #    agent_clients[debater].client,
-                        #    prompt,
-                        #    model=agent_clients[debater].model_name,
-                        # )
-
                         # response_content = responses[0].message.content
                         chat_response_content = response_content.split("Action Input:")[
                             -1
@@ -657,6 +718,8 @@ if __name__ == "__main__":
                         history = append_to_history(history, response_content)
 
                         chat_record.append(chat_response_content)
+                        annotated_chat_record.append(response_content)
+
                         logging.info(f"chat response content: {chat_response_content}")
 
                     st.session_state.messages.append(
