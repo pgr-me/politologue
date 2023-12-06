@@ -1,0 +1,81 @@
+prompts:
+  prompt: &prompt |-
+    Assume that you are in an American town square used for debates. You will be debating whether the American colonies should remain loyal to Britain or become an independent nation.
+    Keep your responses to less than 150 words and support your arguments with facts.  Do not repeat an argument.
+    Start by introducing yourselves and your role. ${role_description}
+
+    Support your arguments with specific events and facts.
+    Respond to arguments and counter arguments that have been made.
+
+    When responding, please output a response in the following format with two fields Action and Action Input:
+    Name: (State your name)
+    Action: Speak
+    Action Input: (You should put what you want to speak use here)
+
+    Here is the conversation history:
+    ${chat_history}
+
+    You should now give your response based on the above history. Remember to give your response STRICTLY in the above response format. Do not add any additional field or line break to your response!  Do not repeat something previously said. Finally, remember to introduce yourself when you first speak.
+
+name: American Patriotism versus Loyalism (bison)
+
+environment:
+  env_type: sim-basic
+  max_turns: 30
+  rule:
+    order:
+      type: sequential
+    visibility:
+      type: all
+    selector:
+      type: basic
+    updater:
+      type: basic
+    describer:
+      type: basic
+
+agents:
+  - agent_type: conversation
+    name: EMH
+    moderator: true
+    role_description: You are EMH, a knowledgeable moderator of debates and neutral party in the early United States. Your commentary will concise and accurate. You will attempt to moderate the dialogue between the others present in the forum. The answers should be less than 50 words.  You will admonish someone if they repeat an argument.  If one continues to repeat, strengthen the admonition.
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: bison 
+      model: 'text-bison-001'
+      temperature: 0.7
+      max_tokens: 250
+  - agent_type: conversation
+    name: John Adams
+    moderator: false
+    role_description:
+        You are John Adams. You are interested in convincing others of your persepective.  You are one of the Founding Fathers of the United States and an early advocate for American independence from Britain.  You believed strongly that the British King and Parliament were tyrannical and that the colonies deserved their own self-government to break free of Britain's unfair taxation policies and other restrictions on liberty.  You are a proud Patriot.
+    inner_prompt:
+      Given the above prompt and response, explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that your response still comes from you, John Adams, without changing.  Ensure that the response still argues in favor of American independence.  Ensure your responses stay less than 150 words.
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: bison 
+      model: 'text-bison-001'
+      temperature: 0.7
+      max_tokens: 500
+  - agent_type: conversation
+    name: William Franklin
+    moderator: false
+    role_description: 
+      You are William Franklin. You are interested in convincing others of your perspective. You are the son of American Founding Father Benjamin Franklin and governor of New Jersey, appointed by King George III.  You opposed American independence and defended the authority of the Crown.  You believed Britain had the right to tax the colonies and thought American rights could be protected while remaining part of the Empire.  You are a staunch Loyalist.
+    inner_prompt:
+      Given the above prompt and response, explain how you can improve the response, and then provide a revised response in the same format as the original response.  Ensure that the revised response does not repeat any points that have already been made and that your response still comes from you, William Franklin, without changing.  Ensure that the response still argues in favor of American loyalty to the British crown.  Ensure your responses stay less than 150 words.
+    memory:
+      memory_type: chat_history
+    prompt_template: *prompt
+    llm:
+      llm_type: bison 
+      model: 'text-bison-001'
+      temperature: 0.7
+      max_tokens: 500
+
+tools:

@@ -323,7 +323,7 @@ def make_prompt(template, agent_name, history):
 
 def respond(client, prompt, model=None):
     # chatgpt
-    if model == AgentModel.CHATGPT_35_TURBO.value:
+    if model in [AgentModel.CHATGPT_35_TURBO.value, AgentModel.CHATGPT_4.value]:
         messages = [{"role": "user", "content": prompt}]
         completion = client.chat.completions.create(model=model, messages=messages)
         responses = completion.choices
@@ -465,6 +465,30 @@ def make_responses(
             completion = Response(message=message)
 
             resp = completion.message.content
+        elif model in [
+            AgentModel.LLAMA_2_7B_CHAT_HF.value,
+            AgentModel.FALCON_7B_INSTRUCT.value,
+        ]:
+            sequences = client(
+                mono_prompt,
+                max_length=10000,
+                do_sample=True,
+                top_k=10,
+                num_return_sequences=1,
+            )
+
+            content = ""
+            for seq in sequences:
+                logging.info(f"{model} full response: \n{seq['generated_text']}")
+
+                texts = seq["generated_text"].split("RESPONSE:")
+                content = texts[-1]
+
+            # form the response
+            message = Message(content=content)
+            response = Response(message=message)
+
+            return response.message.content
         else:
             raise ValueError("Invalid model")
 
