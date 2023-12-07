@@ -608,7 +608,9 @@ if __name__ == "__main__":
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
                     full_response = ""
-                    summarized_history = summarize(history, annotated_chat_record)
+                    summarized_history = ""
+                    if summarization:
+                        summarized_history = summarize(history, annotated_chat_record)
 
                     if summarization:
                         prompt = make_prompt(template, moderator, summarized_history)
@@ -654,7 +656,9 @@ if __name__ == "__main__":
 
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
-                    summarized_history = summarize(history, annotated_chat_record)
+                    summarized_history = ""
+                    if summarization:
+                        summarized_history = summarize(history, annotated_chat_record)
 
                     if summarization:
                         prompt = make_prompt(template, moderator, summarized_history)
@@ -699,7 +703,9 @@ if __name__ == "__main__":
                             inner_placeholder = st.empty()
 
                         message_placeholder = st.empty()
-                        summarized_history = summarize(history, annotated_chat_record)
+                        summarized_history = ""
+                        if summarization:
+                            summarized_history = summarize(history, annotated_chat_record)
 
                         if summarization:
                             prompt = make_prompt(template, debater, summarized_history)
