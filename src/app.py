@@ -116,37 +116,86 @@ class PipelineSingleton:
         return cls._pipeline
 
 
-def research(chat_summary, verbose=False):
-    palm.configure(api_key=palm_api_key)
-    researcher = palm.generate_text
+def transform_raw_answer(text_block):
+    """
+    Reformats the question-answer text block to reinforce the list aspect
+
+    Args:
+        - text_block (str): The text block to be reformatted.
+
+    Returns:
+        - str: The reformatted text block.
+    """
+    try:
+        lines = text_block.split("\n")
+        reformatted_lines = []
+
+        for line in lines:
+            if "Question:" in line or "Answer:" in line:
+                reformatted_line = line.split(":", 1)[1].strip()
+                reformatted_lines.append(reformatted_line)
+
+        reformatted_text = "\n".join(reformatted_lines)
+    except AttributeError as e:
+        reformatted_text = ""
+        logging.error(f"{e}")
+
+    return reformatted_text
+
+
+def research(chat_summary, agent, verbose=False):
+    """
+    response_content = responses[0].message.content
+    """
+    # palm.configure(api_key=palm_api_key)
+    # researcher = palm.generate_text
+    # researcher = model
 
     format_prompt = """
         Take the CHAT SUMMARY that follows and create a new bullet point list.
         Make sure the list contains the same information as the summary with a key difference --
         The new list items will take the form of questions that can be asked.
         The new list item will only contain questions about the facts and evidence from the original summary item.
+        The new list item will not ask questions about the name attributed to the statement or argument.
+        The new list item will only ask questions about facts and evidence.
         Opinions must be left out since they can not be proven.
+        For example:
+            - Given:
+                * John
+                   * argument: Advocated for American independence, asserting that the British monarchy has no rightful authority over the American colonies.
+            - EXAMPLE BAD QUESTION
+                   * Who was John?
+            - EXAMPLE BAD QUESTION
+                   * Did John advocate for indepdence?
+            - EXAMPLE GOOD QUESTION
+                   * Did the British monarchy have authority over the american colonies?
+
         The goal of this exercise is to search and find supporting detail to verify or disprove the facts.
         The questions must be short enough and in a format that is friendly for Wikipedia.
         The questions must contain enough information to produce a sensible Wikipedia search query.
 
-        The new list will take this form:
+        The new list will strictly take this form:
             * <list item question>?
+
+        Do not add text before or after that format.
 
         CHAT SUMMARY:
     """
     format_prompt += chat_summary
-    sequences = researcher(
-        prompt=format_prompt,
-        safety_settings=[
-            {
-                "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
-                "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
-            },
-        ],
-    )
+    # sequences = researcher(
+    #    prompt=format_prompt,
+    #    safety_settings=[
+    #        {
+    #            "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+    #            "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+    #        },
+    #    ],
+    # )
+    responses = respond(agent.client, format_prompt, model=agent.model_name)
+    sequences = responses[0].message.content
 
-    summary_fmt = sequences.result.split("\n")
+    # summary_fmt = sequences.result.split("\n")
+    summary_fmt = sequences.split("\n")
 
     if verbose:
         logging.info(f"summary fmt: {summary_fmt}")
@@ -155,8 +204,14 @@ def research(chat_summary, verbose=False):
     # search = SerpAPIWrapper()
 
     # search_info = ""
+    answers = []
     for summary in summary_fmt:
-        info = wikipedia.run(summary)
+        try:
+            info = wikipedia.run(summary, load_max_docs=1)
+        except Exception as e:
+            info = ""
+            logging.error(f"{e}")
+
         # info = search.run(summary)
         # search_info += info
 
@@ -166,42 +221,51 @@ def research(chat_summary, verbose=False):
         check_prompt = """
             Use the SUMMARY QUESTION that follows and the SEARCHED FACTS that follow.
             Use the SEARCHED FACTS to answer the SUMMARY QUESTION.
-            Attach a brief explanation why the true or false evaluation was given.
+            Attach a brief one line explanation based on the SEARCHED FACTS.
+            If the question is asking an opinion, respond that you only research facts and evidence.
+            If the question is speculative, respond that you only research facts and evidence.
+            If the question is subjective, respond that you only research facts and evidence.
 
-            The response will need to adhere to this format:
-                * Question: <SUMMARY QUESTION> - <Yes | No | Possibly | Unknown> 
+            Your response will need to strictly adhere to this format:
+                * Question: <SUMMARY QUESTION>?
                 * Answer: <brief explanation>
+
         """
         check_prompt += "\nSUMMARY QUESTION\n"
         check_prompt += summary
         check_prompt += "\nSEARCHED FACTS:\n"
         check_prompt += info
 
-        sequences = researcher(
-            prompt=check_prompt,
-            safety_settings=[
-                {
-                    "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
-                    "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
-                },
-            ],
-        )
+        # sequences = researcher(
+        #    prompt=check_prompt,
+        #    safety_settings=[
+        #        {
+        #            "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+        #            "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+        #        },
+        #    ],
+        # )
+        responses = respond(agent.client, check_prompt, model=agent.model_name)
+        sequences = responses[0].message.content
 
-        answer = sequences.result
+        # answer = transform_raw_answer(sequences.result)
+        answer = transform_raw_answer(sequences)
+        answers.append(answer)
 
         if verbose:
             logging.info(f"summary question: {summary}")
-            logging.info(f"research: {answer}")
+            logging.info(f"sequences: {sequences}")
+            logging.info(f"answer: {answer}")
+
+    return answers
 
 
-def summarize(history, chat_record, verbose=False):
+def summarize(history, chat_record, agent, verbose=False):
     """
     summarize the chat history to align with context window constraint
     """
-    device = 0 if torch.cuda.is_available() else -1
-
-    palm.configure(api_key=palm_api_key)
-    summarizer = palm.generate_text
+    # palm.configure(api_key=palm_api_key)
+    # summarizer = palm.generate_text
 
     # if the size of the chat history is too large, summarize it
     if len(chat_record) > 1:
@@ -238,17 +302,18 @@ def summarize(history, chat_record, verbose=False):
         if verbose:
             logging.info(f"summarizer prompt: {prompt}")
 
-        sequences = summarizer(
-            prompt=prompt,
-            safety_settings=[
-                {
-                    "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
-                    "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
-                },
-            ],
-        )
-
-        summary = sequences.result
+        # sequences = summarizer(
+        #    prompt=prompt,
+        #    safety_settings=[
+        #        {
+        #            "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+        #            "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+        #        },
+        #    ],
+        # )
+        # summary = sequences.result
+        responses = respond(agent.client, prompt, model=agent.model_name)
+        summary = responses[0].message.content
 
         if verbose:
             logging.info(f"Summarizing history: \n{summary}")
@@ -685,7 +750,10 @@ if __name__ == "__main__":
 
                     if summarization:
                         summarized_history = summarize(
-                            history, annotated_chat_record, verbose=verbose_summarization
+                            history,
+                            annotated_chat_record,
+                            agent_clients[moderator],
+                            verbose=verbose_summarization,
                         )
                         prompt = make_prompt(template, moderator, summarized_history)
                     else:
@@ -733,9 +801,11 @@ if __name__ == "__main__":
                     summarized_history = ""
 
                     if summarization:
-                        summarized_history = summarize(history, annotated_chat_record)
                         summarized_history = summarize(
-                            history, annotated_chat_record, verbose=verbose_summarization
+                            history,
+                            annotated_chat_record,
+                            agent_clients[moderator],
+                            verbose=verbose_summarization,
                         )
 
                     # moderator probably wants the entire history
@@ -746,18 +816,18 @@ if __name__ == "__main__":
                     prompt = make_prompt(template, moderator, history)
 
                     # experimental researcher agent
-                    if live_research:
-                        research(summarized_history, verbose=verbose_research)
+                    # if live_research:
+                    #    research(summarized_history, agent_clients[moderator], verbose=verbose_research)
 
                     prompt += """
-                    \nDecide who won the debate and explain why.  
-                    Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), 
-                    and explanation using the following criteria: 
-                        Organization and Clarity, 
-                        Use of Arguments, 
-                        Use of examples and facts, 
-                        Use of rebuttal, 
-                        Presentation Style.  
+                    \nDecide who won the debate and explain why.
+                    Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20),
+                    and explanation using the following criteria:
+                        Organization and Clarity,
+                        Use of Arguments,
+                        Use of examples and facts,
+                        Use of rebuttal,
+                        Presentation Style.
                     Then give an overall score for each debater.
                     """
 
@@ -803,6 +873,7 @@ if __name__ == "__main__":
                             summarized_history = summarize(
                                 history,
                                 annotated_chat_record,
+                                agent_clients[debater],
                                 verbose=verbose_summarization,
                             )
 
@@ -839,9 +910,25 @@ if __name__ == "__main__":
                             partial_summary = summarize(
                                 "",
                                 ["", response_content],
+                                agent_clients[debater],
                                 verbose=verbose_summarization,
                             )
-                            research(partial_summary, verbose=verbose_research)
+                            items = research(
+                                partial_summary,
+                                agent_clients[debater],
+                                verbose=verbose_research,
+                            )
+
+                            research_placeholder = st.empty()
+                            research_placeholder.markdown(
+                                f"<p style='color: orange;'>Research:</p>",
+                                unsafe_allow_html=True,
+                            )
+                            for item in items:
+                                st.markdown(
+                                    f"<p style='color: orange;'> - {item}</p>",
+                                    unsafe_allow_html=True,
+                                )
 
                         # response_content = responses[0].message.content
                         chat_response_content = response_content.split("Action Input:")[
