@@ -14,7 +14,7 @@ prompts:
 
     You should now give your response based on the above history. Remember to give your response STRICTLY in the above response format. Do not add any additional field or line break to your response!  Do not repeat something previously said. Finally, remember to introduce yourself when you first speak.
 
-name: American Patriotism versus Loyalism
+name: American Patriotism versus Loyalism (gpt-3.5)
 
 environment:
   env_type: sim-basic
