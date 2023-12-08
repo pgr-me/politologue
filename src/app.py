@@ -27,6 +27,8 @@ from openai import OpenAI
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from google.generativeai.types import HarmCategory
 from google.ai.generativelanguage import SafetySetting
+from langchain.tools import WikipediaQueryRun
+from langchain.utilities import WikipediaAPIWrapper, SerpAPIWrapper
 
 DST_DIR = Path("output")
 DST_DIR.mkdir(exist_ok=True, parents=True)
@@ -82,54 +84,128 @@ class Response:
     message: Message
 
 
-def chunk_text(text, chunk_size=500):
+class PipelineSingleton:
     """
-    given a text separate the text into chunks for the language model context window constraint
+    the local 7B models are very slow, so make sure to initialize them only once
     """
-    sentences = nltk.sent_tokenize(text)
-    chunks = []
-    current_chunk = ""
 
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) < chunk_size or len(current_chunk) == 0:
-            current_chunk += sentence + " "
-        else:
-            chunks.append(current_chunk)
-            current_chunk = sentence + " "
+    _instance = None
+    _pipeline = None
 
-    chunks.append(current_chunk)
+    def __new__(cls, model_name):
+        if cls._instance is None:
+            cls._instance = super(PipelineSingleton, cls).__new__(cls)
+            cls._initialize_pipeline(model_name)
 
-    return chunks
+        return cls._instance
+
+    @classmethod
+    def _initialize_pipeline(cls, model_name):
+        if cls._pipeline is None:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            cls._pipeline = transformers.pipeline(
+                "text-generation",
+                model=model_name,
+                tokenizer=tokenizer,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+            )
+
+    @classmethod
+    def get_pipeline(cls):
+        return cls._pipeline
 
 
-def summarize(history, chat_record):
+def research(chat_summary, verbose=False):
+    palm.configure(api_key=palm_api_key)
+    researcher = palm.generate_text
+
+    format_prompt = """
+        Take the CHAT SUMMARY that follows and create a new bullet point list.
+        Make sure the list contains the same information as the summary with a key difference --
+        The new list items will take the form of questions that can be asked.
+        The new list item will only contain questions about the facts and evidence from the original summary item.
+        Opinions must be left out since they can not be proven.
+        The goal of this exercise is to search and find supporting detail to verify or disprove the facts.
+        The questions must be short enough and in a format that is friendly for Wikipedia.
+        The questions must contain enough information to produce a sensible Wikipedia search query.
+
+        The new list will take this form:
+            * <list item question>?
+
+        CHAT SUMMARY:
+    """
+    format_prompt += chat_summary
+    sequences = researcher(
+        prompt=format_prompt,
+        safety_settings=[
+            {
+                "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+            },
+        ],
+    )
+
+    summary_fmt = sequences.result.split("\n")
+
+    if verbose:
+        logging.info(f"summary fmt: {summary_fmt}")
+
+    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    # search = SerpAPIWrapper()
+
+    # search_info = ""
+    for summary in summary_fmt:
+        info = wikipedia.run(summary)
+        # info = search.run(summary)
+        # search_info += info
+
+        # these can be really long
+        # logging.info(f"wiki info: {info}")
+
+        check_prompt = """
+            Use the SUMMARY QUESTION that follows and the SEARCHED FACTS that follow.
+            Use the SEARCHED FACTS to answer the SUMMARY QUESTION.
+            Attach a brief explanation why the true or false evaluation was given.
+
+            The response will need to adhere to this format:
+                * Question: <SUMMARY QUESTION> - <Yes | No | Possibly | Unknown> 
+                * Answer: <brief explanation>
+        """
+        check_prompt += "\nSUMMARY QUESTION\n"
+        check_prompt += summary
+        check_prompt += "\nSEARCHED FACTS:\n"
+        check_prompt += info
+
+        sequences = researcher(
+            prompt=check_prompt,
+            safety_settings=[
+                {
+                    "category": HarmCategory.HARM_CATEGORY_DEROGATORY,
+                    "threshold": SafetySetting.HarmBlockThreshold.BLOCK_NONE,
+                },
+            ],
+        )
+
+        answer = sequences.result
+
+        if verbose:
+            logging.info(f"summary question: {summary}")
+            logging.info(f"research: {answer}")
+
+
+def summarize(history, chat_record, verbose=False):
     """
     summarize the chat history to align with context window constraint
     """
     device = 0 if torch.cuda.is_available() else -1
 
-    # summarizer = pipeline(
-    #    "summarization", model="pszemraj/led-large-book-summary", device=device
-    # )
     palm.configure(api_key=palm_api_key)
     summarizer = palm.generate_text
 
     # if the size of the chat history is too large, summarize it
-    # include the last portion of chat for continuity
     if len(chat_record) > 1:
         chat_history = " ".join(chat_record)
-        # logging.info(f"chat history: {chat_history}")
-
-        # chunks = chunk_text(chat_history, chunk_size=1024)
-        # summaries = [
-        #    summarizer(chunk, max_length=100)[0]["summary_text"] for chunk in chunks
-        # ]
-        # summary = " ".join(summaries)
-        # summary = "\nDebate Summary:\n" + summary
-
-        # chat = " ".join(chat_record[-2:])
-        # chat = "\nMost Recent Chat History:\n" + chat
-        # summary = summary + chat
 
         postfix = """
         \n
@@ -137,6 +213,9 @@ def summarize(history, chat_record):
         Summarize the previous chat history into concise bullet points. It includes a moderator and two debaters.
         Significantly reduce the overall size.
         Capture main points from the arguments and examples.
+        Prioritize preserving any facts that have been communicated.
+        If a debater references something specific, like an historical event or fact, preserve this fact.
+        The facts are important.
         Attribute the main points to the debater that introduced them.
 
         The chat format is:
@@ -146,21 +225,18 @@ def summarize(history, chat_record):
 
         The summary format will look like:
             *moderator*:
-                * point 1
-                * point 2
-                * etc
-            *debater 1*
-                * point 1
-                * point 2
-                * ect
-            *debater 2*
-                * point 1
-                * point 2
-                * etc
+                * statement:  
+            *debater 1 name*
+                * argument:
+                * argument:  
+            *debater 2 name*
+                * argument:
+                * argument:  
         """
         prompt = chat_history + postfix
 
-        logging.info(f"summarizer prompt: {prompt}")
+        if verbose:
+            logging.info(f"summarizer prompt: {prompt}")
 
         sequences = summarizer(
             prompt=prompt,
@@ -174,7 +250,8 @@ def summarize(history, chat_record):
 
         summary = sequences.result
 
-        logging.info(f"Summarizing history: \n{summary}")
+        if verbose:
+            logging.info(f"Summarizing history: \n{summary}")
 
         return summary
 
@@ -221,23 +298,13 @@ def instantiate_agents(template, openai_api_key=None, palm_api_key=None):
     # set up falcon if one of the agents requires it
     if AgentModel.FALCON_7B_INSTRUCT.value in models:
         tokenizer = AutoTokenizer.from_pretrained(AgentModel.FALCON_7B_INSTRUCT.value)
-        falcon_pipeline = transformers.pipeline(
-            "text-generation",
-            model=AgentModel.FALCON_7B_INSTRUCT.value,
-            tokenizer=tokenizer,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
+        pipeline_singleton = PipelineSingleton(AgentModel.FALCON_7B_INSTRUCT.value)
+        falcon_pipeline = pipeline_singleton.get_pipeline()
 
     if AgentModel.LLAMA_2_7B_CHAT_HF.value in models:
         tokenizer = AutoTokenizer.from_pretrained(AgentModel.LLAMA_2_7B_CHAT_HF.value)
-        llama_pipeline = transformers.pipeline(
-            "text-generation",
-            model=AgentModel.LLAMA_2_7B_CHAT_HF.value,
-            tokenizer=tokenizer,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
+        pipeline_singleton = PipelineSingleton(AgentModel.LLAMA_2_7B_CHAT_HF.value)
+        llama_pipeline = pipeline_singleton.get_pipeline()
 
     # set up each agent with a llm
     agent_clients = {}
@@ -488,7 +555,7 @@ def make_responses(
             message = Message(content=content)
             response = Response(message=message)
 
-            return response.message.content
+            resp = response.message.content
         else:
             raise ValueError("Invalid model")
 
@@ -528,8 +595,8 @@ if __name__ == "__main__":
     logging.info(f"Config path {config_dir}")
 
     # set up nltk for chat history summarization
-    nltk.download("punkt")
-    nltk.download("gutenberg")
+    # nltk.download("punkt")
+    # nltk.download("gutenberg")
 
     openai_api_key = os.environ.get("OPENAI_API_KEY")
     palm_api_key = os.environ.get("PALM_API_KEY")
@@ -538,25 +605,35 @@ if __name__ == "__main__":
     templates = load_templates(config_dir)
     debates = sorted(templates.keys())
 
-    # Select debate
+    # Select debate; set toggles
+    st.markdown("## Debate Settings")
     debate = st.selectbox("Select debate:", tuple(debates))
     n_rounds = st.select_slider(label="Number of debate rounds", options=range(5, 31))
     inner_monologue = st.checkbox("Use inner monologue?")
-    verbose = st.checkbox("Verbose (print in local terminal)")
     inner_rounds = st.select_slider(
         label="Number of inner monologue rounds", options=range(1, 6)
     )
     template = templates[debate]
     summarization = st.checkbox("Reduce prompt size with chat history summarization")
+    live_research = st.checkbox("Research statements as they are made")
+
+    st.markdown("## Debate Logging")
+    verbose = st.checkbox("Verbose inner monologue (print in local terminal)")
+    verbose_summarization = st.checkbox("Verbose summarization")
+    verbose_research = st.checkbox("Verbose research")
 
     logging.info(
         f"n_rounds: {n_rounds}, inner_monologue: {inner_monologue}, verbose: {verbose}, summarization: {summarization}"
     )
 
+    # model API keys check
     if openai_api_key is None:
         logging.warning("OpenAI API Key is missing")
     if palm_api_key is None:
         logging.warning("PaLM API Key is missing")
+
+    if palm_api_key is None and (summarization or live_research):
+        raise ValueError("PaLM API needs to be configured for selected debate options")
 
     # Instantiate agent clients and history
     agent_clients = instantiate_agents(
@@ -574,13 +651,10 @@ if __name__ == "__main__":
         timestamp = str(datetime.datetime.now())[:-10].replace(":", "-")
 
     # keep a chat record to help with summarization
-    # the latest literal responses will be appended to a summary
     # this should help distil the prompt context size
     chat_record = []
     annotated_chat_record = []
 
-    # if round_ not in locals():
-    #    round_ = 0
     moderator = get_moderator(template)
     debaters = [x for x in agent_names if x != moderator]
 
@@ -600,7 +674,6 @@ if __name__ == "__main__":
             st.markdown(message["content"])
 
     if st.button("Start Debate"):
-        # st.session_state.messages.append({"role": "user", "content": prompt})
         for round_ in range(n_rounds):
             if round_ == 0:
                 logging.info(f"First round: {round_}")
@@ -608,7 +681,9 @@ if __name__ == "__main__":
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
                     full_response = ""
-                    summarized_history = summarize(history, annotated_chat_record)
+                    summarized_history = summarize(
+                        history, annotated_chat_record, verbose=verbose_summarization
+                    )
 
                     if summarization:
                         prompt = make_prompt(template, moderator, summarized_history)
@@ -654,14 +729,32 @@ if __name__ == "__main__":
 
                 with st.chat_message(moderator):
                     message_placeholder = st.empty()
-                    summarized_history = summarize(history, annotated_chat_record)
+                    summarized_history = summarize(
+                        history, annotated_chat_record, verbose=verbose_summarization
+                    )
 
-                    if summarization:
-                        prompt = make_prompt(template, moderator, summarized_history)
-                    else:
-                        prompt = make_prompt(template, moderator, history)
+                    # moderator probably wants the entire history
+                    # if summarization:
+                    #    prompt = make_prompt(template, moderator, summarized_history)
+                    # else:
+                    #    prompt = make_prompt(template, moderator, history)
+                    prompt = make_prompt(template, moderator, history)
 
-                    prompt += "\nDecide who won the debate and explain why.  Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), and explanation using the following criteria: Organization and Clarity, Use of Arguments, Use of examples and facts, Use of rebuttal, Presentation Style.  Then give an overall score for each debater."
+                    # experimental researcher agent
+                    if live_research:
+                        research(summarized_history, verbose=verbose_research)
+
+                    prompt += """
+                    \nDecide who won the debate and explain why.  
+                    Provide a score of 0-100 for each debater and explain the reason for the score with an itemized break-down, score (0-20), 
+                    and explanation using the following criteria: 
+                        Organization and Clarity, 
+                        Use of Arguments, 
+                        Use of examples and facts, 
+                        Use of rebuttal, 
+                        Presentation Style.  
+                    Then give an overall score for each debater.
+                    """
 
                     responses = respond(
                         agent_clients[moderator].client,
@@ -699,7 +792,11 @@ if __name__ == "__main__":
                             inner_placeholder = st.empty()
 
                         message_placeholder = st.empty()
-                        summarized_history = summarize(history, annotated_chat_record)
+                        summarized_history = summarize(
+                            history,
+                            annotated_chat_record,
+                            verbose=verbose_summarization,
+                        )
 
                         if summarization:
                             prompt = make_prompt(template, debater, summarized_history)
@@ -716,23 +813,27 @@ if __name__ == "__main__":
                                 verbose=verbose,
                                 model=agent_clients[debater].model_name,
                             )  # Create three responses based off of an inner monologue
-                            response_content = responses[
-                                inner_rounds
-                            ]  # choose_response(responses, agent_clients[debater], prompt, rounds=inner_rounds)  # Choose the strongest of the three responses
+                            response_content = responses[inner_rounds]
                             inner_placeholder.markdown(
                                 f"Inner monologue: {inner}\n\n---\n\n"
                             )
                             if verbose:
-                                # print("---")
                                 logging.info(f"verbose: {verbose} --------")
                         else:
-                            # responses = respond(agent_clients[debater], prompt)
                             responses = respond(
                                 agent_clients[debater].client,
                                 prompt,
                                 model=agent_clients[debater].model_name,
                             )
                             response_content = responses[0].message.content
+
+                        if live_research:
+                            partial_summary = summarize(
+                                "",
+                                ["", response_content],
+                                verbose=verbose_summarization,
+                            )
+                            research(partial_summary, verbose=verbose_research)
 
                         # response_content = responses[0].message.content
                         chat_response_content = response_content.split("Action Input:")[
